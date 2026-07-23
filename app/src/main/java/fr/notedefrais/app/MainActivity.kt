@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -45,7 +46,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -58,9 +60,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,8 +91,9 @@ import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.time.format.FormatStyle
 import java.util.Locale
 
@@ -526,6 +531,7 @@ private fun ReceiptRow(receipt: Receipt, onOpen: () -> Unit, onDelete: () -> Uni
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateTripDialog(
     onDismiss: () -> Unit,
@@ -533,8 +539,8 @@ private fun CreateTripDialog(
 ) {
     val today = LocalDate.now()
     var name by remember { mutableStateOf("") }
-    var start by remember { mutableStateOf(today.toString()) }
-    var end by remember { mutableStateOf(today.toString()) }
+    var start by remember { mutableStateOf(today) }
+    var end by remember { mutableStateOf(today) }
     var allowance by remember { mutableStateOf("40,00") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -547,13 +553,19 @@ private fun CreateTripDialog(
                     value = name, onValueChange = { name = it },
                     label = { Text("Nom (ex. Les Clayes)") }, singleLine = true
                 )
-                OutlinedTextField(
-                    value = start, onValueChange = { start = it },
-                    label = { Text("Date de début (AAAA-MM-JJ)") }, singleLine = true
+                CalendarDateField(
+                    label = "Date de début",
+                    value = start,
+                    onValueChange = {
+                        start = it
+                        if (end.isBefore(it)) end = it
+                    }
                 )
-                OutlinedTextField(
-                    value = end, onValueChange = { end = it },
-                    label = { Text("Date de fin (AAAA-MM-JJ)") }, singleLine = true
+                CalendarDateField(
+                    label = "Date de fin",
+                    value = end,
+                    onValueChange = { end = it },
+                    minDate = start
                 )
                 OutlinedTextField(
                     value = allowance, onValueChange = { allowance = it },
@@ -565,17 +577,14 @@ private fun CreateTripDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val parsedStart = start.toDateOrNull()
-                val parsedEnd = end.toDateOrNull()
                 val parsedAllowance = allowance.toMoneyOrNull()
                 error = when {
                     name.isBlank() -> "Donnez un nom au déplacement."
-                    parsedStart == null || parsedEnd == null -> "Utilisez le format AAAA-MM-JJ."
-                    parsedEnd.isBefore(parsedStart) -> "La fin doit être après le début."
+                    end.isBefore(start) -> "La fin doit être après le début."
                     parsedAllowance == null || parsedAllowance.signum() < 0 -> "Le plafond est invalide."
                     else -> null
                 }
-                if (error == null) onConfirm(name, parsedStart!!, parsedEnd!!, parsedAllowance!!)
+                if (error == null) onConfirm(name, start, end, parsedAllowance!!)
             }) { Text("Créer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
@@ -607,6 +616,7 @@ private fun SourceDialog(onDismiss: () -> Unit, onCamera: () -> Unit, onFile: ()
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddReceiptDialog(
     trip: Trip,
@@ -615,7 +625,7 @@ private fun AddReceiptDialog(
     onConfirm: (LocalDate, BigDecimal, ExpenseCategory) -> Unit
 ) {
     val defaultDate = LocalDate.now().coerceIn(trip.startDate, trip.endDate)
-    var date by remember { mutableStateOf(defaultDate.toString()) }
+    var date by remember { mutableStateOf(defaultDate) }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ExpenseCategory.MEAL) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -638,10 +648,13 @@ private fun AddReceiptDialog(
                     label = { Text("Montant TTC (€)") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
-                OutlinedTextField(
-                    value = date, onValueChange = { date = it },
-                    label = { Text("Date (AAAA-MM-JJ)") }, singleLine = true,
-                    supportingText = { Text("Entre ${trip.startDate} et ${trip.endDate}") }
+                CalendarDateField(
+                    label = "Date du justificatif",
+                    value = date,
+                    onValueChange = { date = it },
+                    minDate = trip.startDate,
+                    maxDate = trip.endDate,
+                    supportingText = "Entre ${trip.startDate.shortDateLabel()} et ${trip.endDate.shortDateLabel()}"
                 )
                 Text("Catégorie", fontWeight = FontWeight.Medium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -658,20 +671,107 @@ private fun AddReceiptDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val parsedDate = date.toDateOrNull()
                 val parsedAmount = amount.toMoneyOrNull()
                 error = when {
                     parsedAmount == null || parsedAmount.signum() <= 0 -> "Saisissez un montant supérieur à 0."
-                    parsedDate == null -> "La date est invalide."
-                    parsedDate.isBefore(trip.startDate) || parsedDate.isAfter(trip.endDate) ->
+                    date.isBefore(trip.startDate) || date.isAfter(trip.endDate) ->
                         "La date doit appartenir au déplacement."
                     else -> null
                 }
-                if (error == null) onConfirm(parsedDate!!, parsedAmount!!, category)
+                if (error == null) onConfirm(date, parsedAmount!!, category)
             }) { Text("Enregistrer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CalendarDateField(
+    label: String,
+    value: LocalDate,
+    onValueChange: (LocalDate) -> Unit,
+    minDate: LocalDate? = null,
+    maxDate: LocalDate? = null,
+    supportingText: String? = null
+) {
+    var showCalendar by remember { mutableStateOf(false) }
+
+    Column {
+        Text(
+            label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+        )
+        OutlinedButton(
+            onClick = { showCalendar = true },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp)
+        ) {
+            Text(
+                value.fullDateLabel(),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                Icons.Default.CalendarMonth,
+                contentDescription = "Ouvrir le calendrier"
+            )
+        }
+        supportingText?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+            )
+        }
+    }
+
+    if (showCalendar) {
+        val selectableDates = remember(minDate, maxDate) {
+            object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                    val date = utcTimeMillis.toLocalDateUtc()
+                    return (minDate == null || !date.isBefore(minDate)) &&
+                        (maxDate == null || !date.isAfter(maxDate))
+                }
+
+                override fun isSelectableYear(year: Int): Boolean =
+                    (minDate == null || year >= minDate.year) &&
+                        (maxDate == null || year <= maxDate.year)
+            }
+        }
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = value.toUtcMillis(),
+            selectableDates = selectableDates
+        )
+        DatePickerDialog(
+            onDismissRequest = { showCalendar = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let {
+                            onValueChange(it.toLocalDateUtc())
+                        }
+                        showCalendar = false
+                    },
+                    enabled = pickerState.selectedDateMillis != null
+                ) {
+                    Text("Choisir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCalendar = false }) {
+                    Text("Annuler")
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
 }
 
 private data class PendingSource(val uri: Uri, val mimeType: String)
@@ -712,13 +812,6 @@ private fun BigDecimal.euros(): String =
 private fun String.toMoneyOrNull(): BigDecimal? =
     trim().replace(',', '.').toBigDecimalOrNull()?.setScale(2, RoundingMode.HALF_UP)
 
-private fun String.toDateOrNull(): LocalDate? =
-    try {
-        LocalDate.parse(trim())
-    } catch (_: DateTimeParseException) {
-        null
-    }
-
 private fun Trip.dateRangeLabel(): String {
     val short = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.FRANCE)
     return "Du ${startDate.format(short)} au ${endDate.format(short)}"
@@ -727,3 +820,12 @@ private fun Trip.dateRangeLabel(): String {
 private fun LocalDate.fullDateLabel(): String =
     format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRANCE))
         .replaceFirstChar { it.titlecase(Locale.FRANCE) }
+
+private fun LocalDate.shortDateLabel(): String =
+    format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.FRANCE))
+
+private fun LocalDate.toUtcMillis(): Long =
+    atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+private fun Long.toLocalDateUtc(): LocalDate =
+    Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
