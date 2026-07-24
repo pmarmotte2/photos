@@ -6,7 +6,7 @@
         <item name="android:navigationBarColor">#F8F9F4</item>
     </style>
 
-    <style name="Theme.NoteDeFrais.Crop" parent="Theme.AppCompat.Light.NoActionBar">
+    <style name="Theme.NoteDeFrais.Crop" parent="Theme.AppCompat.Light.DarkActionBar">
         <item name="colorPrimary">#1D6B52</item>
         <item name="colorPrimaryDark">#14513D</item>
         <item name="colorAccent">#1D6B52</item>

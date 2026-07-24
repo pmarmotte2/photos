@@ -365,6 +365,9 @@ private fun TripScreen(
                             guidelines = CropImageView.Guidelines.ON,
                             fixAspectRatio = false,
                             activityTitle = "Recadrer la facture",
+                            cropMenuCropButtonTitle = "Valider",
+                            activityMenuIconColor = android.graphics.Color.WHITE,
+                            activityMenuTextColor = android.graphics.Color.WHITE,
                             customOutputUri = croppedUri,
                             outputCompressFormat = Bitmap.CompressFormat.JPEG,
                             outputCompressQuality = 95
