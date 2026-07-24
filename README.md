@@ -8,10 +8,14 @@ droits repas au jour le jour.
 - création d'un déplacement avec nom, dates et plafond repas quotidien ;
 - import d'une facture en PDF ou en image ;
 - prise de photo depuis l'appareil photo ;
+- OCR local des images et de la première page des PDF, avec montants
+  sélectionnables en un toucher ;
 - copie locale privée sous un nom générique, par exemple
   `2026-07-22_repas_a1b2c3d4.jpg` ;
 - consultation des justificatifs par jour et par déplacement ;
 - total des repas, montant encore disponible et signalement d'un dépassement ;
+- calcul du montant remboursable et annotation rouge automatique du justificatif
+  lorsqu'un repas dépasse le droit journalier restant ;
 - catégories repas, transport, hôtel et autre ;
 - suppression protégée par une confirmation.
 
@@ -38,6 +42,6 @@ L'APK est produit dans `app\build\outputs\apk\debug\app-debug.apk`.
 
 ## Limites connues du MVP
 
-- pas encore d'OCR pour préremplir automatiquement date et montant ;
+- l'OCR analyse uniquement la première page des documents PDF ;
 - pas de synchronisation cloud ni d'export groupé ;
 - les dates sont saisies au format ISO `AAAA-MM-JJ`.

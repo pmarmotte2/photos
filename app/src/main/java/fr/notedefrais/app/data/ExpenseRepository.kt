@@ -13,6 +13,7 @@ import java.util.UUID
 class ExpenseRepository(private val context: Context) {
     private val preferences = context.getSharedPreferences("expense_data", Context.MODE_PRIVATE)
     private val receiptsDirectory = File(context.filesDir, "receipts").apply { mkdirs() }
+    private val originalsDirectory = File(context.filesDir, "receipt_originals").apply { mkdirs() }
 
     fun load(): ExpenseState {
         val trips = runCatching {
@@ -65,11 +66,35 @@ class ExpenseRepository(private val context: Context) {
             append(extension)
         }
         val destination = File(receiptsDirectory, genericName)
+        val original = File(originalsDirectory, genericName)
 
         try {
             context.contentResolver.openInputStream(source).use { input ->
                 requireNotNull(input) { "Le fichier sélectionné est inaccessible." }
-                destination.outputStream().use { output -> input.copyTo(output) }
+                original.outputStream().use { output -> input.copyTo(output) }
+            }
+            val alreadySpent = state.receipts
+                .filter {
+                    it.tripId == trip.id &&
+                        it.date == date &&
+                        it.category == ExpenseCategory.MEAL
+                }
+                .fold(BigDecimal.ZERO) { total, receipt -> total + receipt.amount }
+            val reimbursableAmount = if (category == ExpenseCategory.MEAL) {
+                calculateReimbursableAmount(amount, trip.dailyMealAllowance, alreadySpent)
+            } else {
+                amount
+            }
+
+            if (reimbursableAmount < amount) {
+                ReceiptAnnotator.annotate(
+                    source = original,
+                    destination = destination,
+                    mimeType = mimeType,
+                    reimbursableAmount = reimbursableAmount
+                )
+            } else {
+                original.copyTo(destination, overwrite = true)
             }
             val receipt = Receipt(
                 tripId = trip.id,
@@ -77,7 +102,8 @@ class ExpenseRepository(private val context: Context) {
                 amount = amount,
                 category = category,
                 storedFileName = genericName,
-                mimeType = mimeType.ifBlank { mimeTypeFor(extension) }
+                mimeType = mimeType.ifBlank { mimeTypeFor(extension) },
+                reimbursableAmount = reimbursableAmount
             )
             val updated = state.copy(receipts = (state.receipts + receipt)
                 .sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category }))
@@ -85,6 +111,7 @@ class ExpenseRepository(private val context: Context) {
             return updated
         } catch (error: Throwable) {
             destination.delete()
+            original.delete()
             throw error
         }
     }
@@ -93,6 +120,7 @@ class ExpenseRepository(private val context: Context) {
 
     fun deleteReceipt(receipt: Receipt, state: ExpenseState): ExpenseState {
         fileFor(receipt).delete()
+        File(originalsDirectory, receipt.storedFileName).delete()
         val updated = state.copy(receipts = state.receipts.filterNot { it.id == receipt.id })
         persist(updated)
         return updated
@@ -126,6 +154,7 @@ class ExpenseRepository(private val context: Context) {
         .put("category", category.name)
         .put("storedFileName", storedFileName)
         .put("mimeType", mimeType)
+        .put("reimbursableAmount", reimbursableAmount.toPlainString())
 
     private fun JSONObject.toTrip() = Trip(
         id = getString("id"),
@@ -142,7 +171,8 @@ class ExpenseRepository(private val context: Context) {
         amount = BigDecimal(getString("amount")),
         category = ExpenseCategory.valueOf(getString("category")),
         storedFileName = getString("storedFileName"),
-        mimeType = getString("mimeType")
+        mimeType = getString("mimeType"),
+        reimbursableAmount = BigDecimal(optString("reimbursableAmount", getString("amount")))
     )
 
     private fun extensionFor(mimeType: String) = when (mimeType.lowercase()) {

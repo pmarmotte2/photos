@@ -32,12 +32,17 @@ data class Receipt(
     val amount: BigDecimal,
     val category: ExpenseCategory,
     val storedFileName: String,
-    val mimeType: String
+    val mimeType: String,
+    val reimbursableAmount: BigDecimal = amount
 ) {
     init {
         require(amount >= BigDecimal.ZERO)
         require(storedFileName.isNotBlank())
+        require(reimbursableAmount >= BigDecimal.ZERO)
+        require(reimbursableAmount <= amount)
     }
+
+    val isCapped: Boolean get() = reimbursableAmount < amount
 }
 
 data class ExpenseState(
@@ -57,4 +62,13 @@ data class DailySummary(
         } else {
             (mealSpent.toFloat() / allowance.toFloat()).coerceIn(0f, 1f)
         }
+}
+
+fun calculateReimbursableAmount(
+    receiptAmount: BigDecimal,
+    dailyAllowance: BigDecimal,
+    alreadySpent: BigDecimal
+): BigDecimal {
+    val remaining = (dailyAllowance - alreadySpent).coerceAtLeast(BigDecimal.ZERO)
+    return receiptAmount.coerceAtMost(remaining).coerceAtLeast(BigDecimal.ZERO)
 }

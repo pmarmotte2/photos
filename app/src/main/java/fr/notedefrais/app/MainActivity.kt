@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,10 +43,12 @@ import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +69,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,6 +91,8 @@ import fr.notedefrais.app.data.DailySummary
 import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
+import fr.notedefrais.app.ocr.OcrAmountCandidate
+import fr.notedefrais.app.ocr.ReceiptOcr
 import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -524,7 +530,20 @@ private fun ReceiptRow(receipt: Receipt, onOpen: () -> Unit, onDelete: () -> Uni
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Text(receipt.amount.euros(), fontWeight = FontWeight.SemiBold)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                receipt.reimbursableAmount.euros(),
+                fontWeight = FontWeight.SemiBold,
+                color = if (receipt.isCapped) Red else MaterialTheme.colorScheme.onSurface
+            )
+            if (receipt.isCapped) {
+                Text(
+                    "sur ${receipt.amount.euros()}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         IconButton(onClick = onDelete) {
             Icon(Icons.Default.DeleteOutline, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -624,11 +643,27 @@ private fun AddReceiptDialog(
     onDismiss: () -> Unit,
     onConfirm: (LocalDate, BigDecimal, ExpenseCategory) -> Unit
 ) {
+    val context = LocalContext.current
     val defaultDate = LocalDate.now().coerceIn(trip.startDate, trip.endDate)
     var date by remember { mutableStateOf(defaultDate) }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ExpenseCategory.MEAL) }
     var error by remember { mutableStateOf<String?>(null) }
+    var ocrLoading by remember(source.uri) { mutableStateOf(true) }
+    var ocrCompleted by remember(source.uri) { mutableStateOf(false) }
+    var ocrCandidates by remember(source.uri) {
+        mutableStateOf<List<OcrAmountCandidate>>(emptyList())
+    }
+
+    LaunchedEffect(source.uri) {
+        runCatching {
+            ReceiptOcr.detectAmounts(context.applicationContext, source.uri, source.mimeType)
+        }.onSuccess {
+            ocrCandidates = it
+        }
+        ocrLoading = false
+        ocrCompleted = true
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -643,6 +678,13 @@ private fun AddReceiptDialog(
                     Spacer(Modifier.width(8.dp))
                     Text(if (source.mimeType == "application/pdf") "Document PDF" else "Image", color = Green)
                 }
+                OcrAmountSelector(
+                    loading = ocrLoading,
+                    completed = ocrCompleted,
+                    candidates = ocrCandidates,
+                    selectedAmount = amount,
+                    onAmountSelected = { amount = it.toFrenchAmount() }
+                )
                 OutlinedTextField(
                     value = amount, onValueChange = { amount = it },
                     label = { Text("Montant TTC (€)") }, singleLine = true,
@@ -683,6 +725,76 @@ private fun AddReceiptDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+@Composable
+private fun OcrAmountSelector(
+    loading: Boolean,
+    completed: Boolean,
+    candidates: List<OcrAmountCandidate>,
+    selectedAmount: String,
+    onAmountSelected: (BigDecimal) -> Unit
+) {
+    when {
+        loading -> {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().background(
+                    PaleGreen,
+                    RoundedCornerShape(10.dp)
+                ).padding(12.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Text("Recherche des montants…", fontSize = 13.sp, color = Green)
+            }
+        }
+
+        candidates.isNotEmpty() -> {
+            Column {
+                Text(
+                    "Montants détectés",
+                    fontWeight = FontWeight.Medium,
+                    color = Green
+                )
+                Text(
+                    "Touchez le montant TTC de la facture.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(candidates, key = { "${it.amount}-${it.sourceLine}" }) { candidate ->
+                        val label = candidate.amount.toFrenchAmount()
+                        AssistChip(
+                            onClick = { onAmountSelected(candidate.amount) },
+                            label = {
+                                Text(
+                                    "$label €",
+                                    fontWeight = if (selectedAmount == label) {
+                                        FontWeight.Bold
+                                    } else {
+                                        FontWeight.Normal
+                                    }
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        completed -> {
+            Text(
+                "Aucun montant détecté. Vous pouvez le saisir manuellement.",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -811,6 +923,9 @@ private fun BigDecimal.euros(): String =
 
 private fun String.toMoneyOrNull(): BigDecimal? =
     trim().replace(',', '.').toBigDecimalOrNull()?.setScale(2, RoundingMode.HALF_UP)
+
+private fun BigDecimal.toFrenchAmount(): String =
+    setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',')
 
 private fun Trip.dateRangeLabel(): String {
     val short = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.FRANCE)

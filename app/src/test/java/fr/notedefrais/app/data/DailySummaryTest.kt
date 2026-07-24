@@ -38,4 +38,37 @@ class DailySummaryTest {
             endDate = LocalDate.of(2026, 7, 22)
         )
     }
+
+    @Test
+    fun second_meal_is_capped_to_the_remaining_daily_allowance() {
+        val reimbursable = calculateReimbursableAmount(
+            receiptAmount = BigDecimal("30.00"),
+            dailyAllowance = BigDecimal("40.00"),
+            alreadySpent = BigDecimal("20.00")
+        )
+
+        assertEquals(BigDecimal("20.00"), reimbursable)
+    }
+
+    @Test
+    fun meal_is_fully_reimbursable_when_allowance_is_available() {
+        val reimbursable = calculateReimbursableAmount(
+            receiptAmount = BigDecimal("18.50"),
+            dailyAllowance = BigDecimal("40.00"),
+            alreadySpent = BigDecimal("10.00")
+        )
+
+        assertEquals(BigDecimal("18.50"), reimbursable)
+    }
+
+    @Test
+    fun meal_is_not_reimbursable_when_allowance_is_exhausted() {
+        val reimbursable = calculateReimbursableAmount(
+            receiptAmount = BigDecimal("12.00"),
+            dailyAllowance = BigDecimal("40.00"),
+            alreadySpent = BigDecimal("44.00")
+        )
+
+        assertEquals(BigDecimal.ZERO, reimbursable)
+    }
 }
