@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -220,6 +222,7 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
             expenseLimits = state.customExpenseLimits,
             onBack = { selectedTripId = null },
             onAddReceipt = vm::addReceipt,
+            onUpdateReceipt = vm::updateReceipt,
             onDeleteReceipt = vm::deleteReceipt,
             fileFor = vm::fileFor
         )
@@ -498,6 +501,7 @@ private fun TripScreen(
     expenseLimits: Map<ExpenseType, BigDecimal>,
     onBack: () -> Unit,
     onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String) -> Result<Unit>,
+    onUpdateReceipt: (Receipt, Trip, LocalDate, BigDecimal, ExpenseType) -> Result<Unit>,
     onDeleteReceipt: (Receipt) -> Unit,
     fileFor: (Receipt) -> File
 ) {
@@ -505,6 +509,7 @@ private fun TripScreen(
     var showSourceDialog by remember { mutableStateOf(false) }
     var pendingSource by remember { mutableStateOf<PendingSource?>(null) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    var receiptToEdit by remember { mutableStateOf<Receipt?>(null) }
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
 
     val documentLauncher = rememberLauncherForActivityResult(
@@ -616,6 +621,7 @@ private fun TripScreen(
                     onOpen = { receipt ->
                         openReceipt(context, receipt, fileFor(receipt))
                     },
+                    onEdit = { receiptToEdit = it },
                     onDelete = { receiptToDelete = it }
                 )
             }
@@ -650,6 +656,29 @@ private fun TripScreen(
                     }
                     .onFailure {
                         Toast.makeText(context, it.message ?: "Enregistrement impossible", Toast.LENGTH_LONG).show()
+                    }
+            }
+        )
+    }
+
+    receiptToEdit?.let { receipt ->
+        EditReceiptDialog(
+            trip = trip,
+            receipt = receipt,
+            expenseLimits = expenseLimits,
+            onDismiss = { receiptToEdit = null },
+            onConfirm = { date, amount, expenseType ->
+                onUpdateReceipt(receipt, trip, date, amount, expenseType)
+                    .onSuccess {
+                        receiptToEdit = null
+                        Toast.makeText(context, "Justificatif modifié", Toast.LENGTH_SHORT).show()
+                    }
+                    .onFailure {
+                        Toast.makeText(
+                            context,
+                            it.message ?: "Modification impossible",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
             }
         )
@@ -711,6 +740,7 @@ private fun DayCard(
     summary: DailySummary,
     receipts: List<Receipt>,
     onOpen: (Receipt) -> Unit,
+    onEdit: (Receipt) -> Unit,
     onDelete: (Receipt) -> Unit
 ) {
     val over = summary.remaining.signum() < 0
@@ -750,7 +780,12 @@ private fun DayCard(
                 Spacer(Modifier.height(12.dp))
                 receipts.forEachIndexed { index, receipt ->
                     if (index > 0) HorizontalDivider(color = Color(0xFFF0F1EE))
-                    ReceiptRow(receipt, onOpen = { onOpen(receipt) }, onDelete = { onDelete(receipt) })
+                    ReceiptRow(
+                        receipt = receipt,
+                        onOpen = { onOpen(receipt) },
+                        onEdit = { onEdit(receipt) },
+                        onDelete = { onDelete(receipt) }
+                    )
                 }
             }
         }
@@ -758,14 +793,25 @@ private fun DayCard(
 }
 
 @Composable
-private fun ReceiptRow(receipt: Receipt, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun ReceiptRow(
+    receipt: Receipt,
+    onOpen: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(color = categoryColor(receipt.category), shape = RoundedCornerShape(10.dp)) {
+        Surface(
+            color = categoryColor(receipt.category),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.clickable(onClick = onEdit)
+        ) {
             Icon(
-                categoryIcon(receipt.category), null, tint = FoRed,
+                categoryIcon(receipt.category),
+                contentDescription = "Modifier ce justificatif",
+                tint = FoRed,
                 modifier = Modifier.padding(9.dp).size(21.dp)
             )
         }
@@ -867,7 +913,10 @@ private fun SourceDialog(onDismiss: () -> Unit, onCamera: () -> Unit, onFile: ()
         icon = { Icon(Icons.Default.ReceiptLong, null) },
         title = { Text("Ajouter un justificatif") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedButton(onClick = onCamera, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.CameraAlt, null)
                     Spacer(Modifier.width(10.dp))
@@ -928,7 +977,10 @@ private fun AddReceiptDialog(
         onDismissRequest = onDismiss,
         title = { Text("Détails du justificatif") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         if (source.mimeType == "application/pdf") Icons.Default.Description else Icons.Default.InsertDriveFile,
@@ -1003,6 +1055,104 @@ private fun AddReceiptDialog(
             }) { Text("Enregistrer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditReceiptDialog(
+    trip: Trip,
+    receipt: Receipt,
+    expenseLimits: Map<ExpenseType, BigDecimal>,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate, BigDecimal, ExpenseType) -> Unit
+) {
+    var date by remember(receipt.id) { mutableStateOf(receipt.date) }
+    var amount by remember(receipt.id) { mutableStateOf(receipt.amount.toFrenchAmount()) }
+    var category by remember(receipt.id) { mutableStateOf(receipt.category) }
+    var expenseType by remember(receipt.id) { mutableStateOf(receipt.expenseType) }
+    var error by remember(receipt.id) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Modifier le justificatif") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CalendarDateField(
+                    label = "Date du justificatif",
+                    value = date,
+                    onValueChange = { date = it },
+                    minDate = trip.startDate,
+                    maxDate = trip.endDate,
+                    supportingText = "Entre ${trip.startDate.shortDateLabel()} et ${trip.endDate.shortDateLabel()}"
+                )
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = {
+                        amount = it
+                        error = null
+                    },
+                    label = { Text("Montant TTC (€)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ExpenseCategoryDropdown(
+                    selected = category,
+                    onSelected = {
+                        category = it
+                        expenseType = ExpenseType.defaultFor(it)
+                    }
+                )
+                ExpenseTypeDropdown(
+                    category = category,
+                    selected = expenseType,
+                    onSelected = { expenseType = it }
+                )
+                val configuredLimit = expenseLimits[expenseType]
+                Text(
+                    when {
+                        configuredLimit != null ->
+                            "Plafond configuré : ${configuredLimit.euros()}"
+                        category == ExpenseCategory.MEAL ->
+                            "Règle par défaut : ${trip.dailyMealAllowance.euros()} par jour pour les repas"
+                        else ->
+                            "Règle par défaut : aucun plafond spécifique"
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Le montant remboursable et l’annotation du fichier seront recalculés.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val parsedAmount = amount.toMoneyOrNull()
+                error = when {
+                    parsedAmount == null || parsedAmount.signum() <= 0 ->
+                        "Saisissez un montant supérieur à 0."
+                    date.isBefore(trip.startDate) || date.isAfter(trip.endDate) ->
+                        "La date doit appartenir au déplacement."
+                    else -> null
+                }
+                if (error == null) onConfirm(date, parsedAmount!!, expenseType)
+            }) {
+                Text("Enregistrer")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
     )
 }
 

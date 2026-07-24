@@ -55,6 +55,23 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _state.value = repository.deleteReceipt(receipt, _state.value)
     }
 
+    fun updateReceipt(
+        receipt: Receipt,
+        trip: Trip,
+        date: LocalDate,
+        amount: BigDecimal,
+        expenseType: ExpenseType
+    ): Result<Unit> = runCatching {
+        _state.value = repository.updateReceipt(
+            receipt = receipt,
+            trip = trip,
+            date = date,
+            amount = amount,
+            expenseType = expenseType,
+            state = _state.value
+        )
+    }
+
     fun saveExpenseLimits(limits: Map<ExpenseType, BigDecimal>): Result<Unit> = runCatching {
         _state.value = repository.saveExpenseLimits(limits, _state.value)
     }

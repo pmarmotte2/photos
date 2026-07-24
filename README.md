@@ -14,6 +14,8 @@ droits repas au jour le jour.
 - copie locale privée sous un nom générique, par exemple
   `2026-07-22_repas_a1b2c3d4.jpg` ;
 - consultation des justificatifs par jour et par déplacement ;
+- modification de la date, du montant et du type ATOS en touchant l'icône
+  du justificatif ;
 - total des repas, montant encore disponible et signalement d'un dépassement ;
 - calcul du montant remboursable et annotation rouge automatique du justificatif
   lorsqu'un repas dépasse le droit journalier restant ;
@@ -48,7 +50,7 @@ L'APK est produit dans `app\build\outputs\apk\debug\app-debug.apk`.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.6.0](releases/Fo-Notes-1.6.0.apk).
+[Fo Notes 1.7.0](releases/Fo-Notes-1.7.0.apk).
 
 ## Limites connues du MVP
 

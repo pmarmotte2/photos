@@ -137,6 +137,79 @@ class ExpenseRepository(private val context: Context) {
 
     fun fileFor(receipt: Receipt): File = File(receiptsDirectory, receipt.storedFileName)
 
+    fun updateReceipt(
+        receipt: Receipt,
+        trip: Trip,
+        date: LocalDate,
+        amount: BigDecimal,
+        expenseType: ExpenseType,
+        state: ExpenseState
+    ): ExpenseState {
+        require(state.receipts.any { it.id == receipt.id })
+        require(receipt.tripId == trip.id)
+        require(!date.isBefore(trip.startDate) && !date.isAfter(trip.endDate))
+        require(amount > BigDecimal.ZERO)
+
+        val original = File(originalsDirectory, receipt.storedFileName)
+        require(original.exists()) { "Le justificatif original est introuvable." }
+
+        val destination = fileFor(receipt)
+        val replacement = File(receiptsDirectory, ".${receipt.storedFileName}.editing")
+        val category = expenseType.category
+        val alreadySpent = state.receipts
+            .filter {
+                it.id != receipt.id &&
+                    it.tripId == trip.id &&
+                    it.date == date &&
+                    it.category == ExpenseCategory.MEAL
+            }
+            .fold(BigDecimal.ZERO) { total, other -> total + other.reimbursableAmount }
+        val typeLimit = state.customExpenseLimits[expenseType]
+        val reimbursableAmount = if (category == ExpenseCategory.MEAL) {
+            calculateReimbursableAmount(
+                receiptAmount = amount,
+                dailyAllowance = trip.dailyMealAllowance,
+                alreadySpent = alreadySpent,
+                typeLimit = typeLimit
+            )
+        } else {
+            applyExpenseLimit(amount, typeLimit)
+        }
+
+        try {
+            if (reimbursableAmount < amount) {
+                ReceiptAnnotator.annotate(
+                    source = original,
+                    destination = replacement,
+                    mimeType = receipt.mimeType,
+                    reimbursableAmount = reimbursableAmount
+                )
+            } else {
+                original.copyTo(replacement, overwrite = true)
+            }
+            replacement.copyTo(destination, overwrite = true)
+            replacement.delete()
+
+            val updatedReceipt = receipt.copy(
+                date = date,
+                amount = amount,
+                category = category,
+                expenseType = expenseType,
+                reimbursableAmount = reimbursableAmount
+            )
+            val updated = state.copy(
+                receipts = state.receipts
+                    .map { if (it.id == receipt.id) updatedReceipt else it }
+                    .sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category })
+            )
+            persist(updated)
+            return updated
+        } catch (error: Throwable) {
+            replacement.delete()
+            throw error
+        }
+    }
+
     fun deleteReceipt(receipt: Receipt, state: ExpenseState): ExpenseState {
         fileFor(receipt).delete()
         File(originalsDirectory, receipt.storedFileName).delete()
