@@ -8,8 +8,9 @@ droits repas au jour le jour.
 - création d'un déplacement avec nom, dates et plafond repas quotidien ;
 - import d'une facture en PDF ou en image ;
 - prise de photo depuis l'appareil photo ;
+- recadrage libre de la photo autour de la facture avant l'OCR ;
 - OCR local des images et de la première page des PDF, avec montants
-  sélectionnables en un toucher ;
+  et dates détectés sélectionnables en un toucher ;
 - copie locale privée sous un nom générique, par exemple
   `2026-07-22_repas_a1b2c3d4.jpg` ;
 - consultation des justificatifs par jour et par déplacement ;

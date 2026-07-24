@@ -14,6 +14,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.math.BigDecimal
+import java.time.LocalDate
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.roundToInt
@@ -24,12 +25,23 @@ data class OcrAmountCandidate(
     val score: Int
 )
 
+data class OcrDateCandidate(
+    val date: LocalDate,
+    val sourceLine: String,
+    val score: Int
+)
+
+data class ReceiptOcrResult(
+    val amounts: List<OcrAmountCandidate>,
+    val dates: List<OcrDateCandidate>
+)
+
 object ReceiptOcr {
-    suspend fun detectAmounts(
+    suspend fun detect(
         context: Context,
         uri: Uri,
         mimeType: String
-    ): List<OcrAmountCandidate> {
+    ): ReceiptOcrResult {
         val inputImage = withContext(Dispatchers.IO) {
             if (mimeType.equals("application/pdf", ignoreCase = true)) {
                 InputImage.fromBitmap(renderFirstPdfPage(context, uri), 0)
@@ -49,7 +61,10 @@ object ReceiptOcr {
                         if (continuation.isActive) continuation.resumeWithException(error)
                     }
             }
-            extractAmountCandidates(text)
+            ReceiptOcrResult(
+                amounts = extractAmountCandidates(text),
+                dates = extractDateCandidates(text)
+            )
         } finally {
             recognizer.close()
         }
@@ -93,6 +108,46 @@ object ReceiptOcr {
     }
 
     private const val MAX_RENDER_WIDTH = 2_000
+}
+
+internal fun extractDateCandidates(text: String): List<OcrDateCandidate> {
+    val candidates = mutableListOf<OcrDateCandidate>()
+
+    text.lineSequence()
+        .map { it.trim().replace(Regex("\\s+"), " ") }
+        .filter { it.isNotBlank() }
+        .forEach { line ->
+            val normalized = line.normalizeForDates()
+            val score = scoreDateLine(normalized)
+
+            NUMERIC_DATE.findAll(normalized).forEach { match ->
+                val date = createDate(
+                    day = match.groupValues[1],
+                    month = match.groupValues[2],
+                    year = match.groupValues[3]
+                ) ?: return@forEach
+                candidates += OcrDateCandidate(date, line, score)
+            }
+
+            TEXTUAL_DATE.findAll(normalized).forEach { match ->
+                val month = FRENCH_MONTHS[match.groupValues[2]] ?: return@forEach
+                val date = createDate(
+                    day = match.groupValues[1],
+                    month = month.toString(),
+                    year = match.groupValues[3]
+                ) ?: return@forEach
+                candidates += OcrDateCandidate(date, line, score + 10)
+            }
+        }
+
+    return candidates
+        .groupBy { it.date }
+        .map { (_, matches) -> matches.maxBy { it.score } }
+        .sortedWith(
+            compareByDescending<OcrDateCandidate> { it.score }
+                .thenByDescending { it.date }
+        )
+        .take(MAX_DATE_CANDIDATES)
 }
 
 internal fun extractAmountCandidates(text: String): List<OcrAmountCandidate> {
@@ -139,6 +194,36 @@ internal fun extractAmountCandidates(text: String): List<OcrAmountCandidate> {
         .sortedWith(compareByDescending<OcrAmountCandidate> { it.score }
             .thenByDescending { it.amount })
         .take(MAX_CANDIDATES)
+}
+
+private fun createDate(day: String, month: String, year: String): LocalDate? {
+    val parsedYear = year.toIntOrNull()?.let {
+        if (it < 100) {
+            if (it >= 70) 1900 + it else 2000 + it
+        } else {
+            it
+        }
+    } ?: return null
+    return runCatching {
+        LocalDate.of(parsedYear, month.toInt(), day.toInt())
+    }.getOrNull()
+}
+
+private fun String.normalizeForDates(): String =
+    lowercase()
+        .replace('à', 'a')
+        .replace('â', 'a')
+        .replace('é', 'e')
+        .replace('è', 'e')
+        .replace('ê', 'e')
+        .replace('û', 'u')
+        .replace('ô', 'o')
+
+private fun scoreDateLine(normalizedLine: String): Int = when {
+    "date de facture" in normalizedLine || "date facture" in normalizedLine -> 120
+    "date" in normalizedLine -> 100
+    "facture" in normalizedLine || "ticket" in normalizedLine -> 50
+    else -> 0
 }
 
 private fun scoreLine(line: String): Int {
@@ -190,6 +275,26 @@ private val EURO_SPLIT_AMOUNT =
     Regex("""(?<!\d)(\d{1,5})\s*[€]\s*(\d{2})(?!\d)""")
 private val MAX_REASONABLE_AMOUNT = BigDecimal("100000.00")
 private const val MAX_CANDIDATES = 6
+private const val MAX_DATE_CANDIDATES = 4
+
+private val NUMERIC_DATE =
+    Regex("""(?<!\d)([0-3]?\d)[/.\-]([01]?\d)[/.\-](\d{2}|\d{4})(?!\d)""")
+private val TEXTUAL_DATE =
+    Regex("""(?<!\d)([0-3]?\d)\s+(janvier|janv|fevrier|fevr|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\.?\s+(\d{2}|\d{4})(?!\d)""")
+private val FRENCH_MONTHS = mapOf(
+    "janvier" to 1, "janv" to 1,
+    "fevrier" to 2, "fevr" to 2,
+    "mars" to 3,
+    "avril" to 4, "avr" to 4,
+    "mai" to 5,
+    "juin" to 6,
+    "juillet" to 7, "juil" to 7,
+    "aout" to 8,
+    "septembre" to 9, "sept" to 9,
+    "octobre" to 10, "oct" to 10,
+    "novembre" to 11, "nov" to 11,
+    "decembre" to 12, "dec" to 12
+)
 
 private val STRONG_TOTAL_KEYWORDS = listOf(
     "net a payer",

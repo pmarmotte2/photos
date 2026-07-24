@@ -126,35 +126,58 @@ object ReceiptAnnotator {
     }
 
     private fun drawReimbursementMark(canvas: Canvas, amount: BigDecimal) {
-        val text = "À REMBOURSER : ${amount.frenchAmount()} €"
-        val textSize = (canvas.width * 0.052f).coerceIn(22f, 72f)
+        val heading = "À REMBOURSER"
+        val amountText = "${amount.frenchAmount()} €"
         val x = canvas.width * 0.06f
-        val y = canvas.height * 0.9f
-        val redPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val maxTextWidth = canvas.width * 0.88f
+        val headingY = canvas.height * 0.79f
+        val amountY = canvas.height * 0.93f
+        val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(205, 28, 38)
-            this.textSize = textSize
+            textSize = canvas.width * 0.075f
             typeface = Typeface.create("cursive", Typeface.BOLD)
             style = Paint.Style.FILL
         }
-        val outlinePaint = Paint(redPaint).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = (textSize * 0.13f).coerceAtLeast(3f)
+        headingPaint.fitToWidth(heading, maxTextWidth)
+        val amountPaint = Paint(headingPaint).apply {
+            textSize = canvas.width * 0.145f
         }
+        amountPaint.fitToWidth(amountText, maxTextWidth)
 
         canvas.save()
-        canvas.rotate(-4f, x, y)
-        canvas.drawText(text, x, y, outlinePaint)
-        canvas.drawText(text, x, y, redPaint)
-        val textWidth = redPaint.measureText(text)
+        canvas.rotate(-3f, x, amountY)
+        canvas.drawOutlinedText(heading, x, headingY, headingPaint)
+        canvas.drawOutlinedText(amountText, x, amountY, amountPaint)
+        val amountWidth = amountPaint.measureText(amountText)
         canvas.drawLine(
             x,
-            y + textSize * 0.16f,
-            (x + textWidth).coerceAtMost(canvas.width * 0.96f),
-            y + textSize * 0.08f,
-            redPaint.apply { strokeWidth = (textSize * 0.07f).coerceAtLeast(2f) }
+            amountY + amountPaint.textSize * 0.13f,
+            (x + amountWidth).coerceAtMost(canvas.width * 0.96f),
+            amountY + amountPaint.textSize * 0.05f,
+            Paint(amountPaint).apply {
+                strokeWidth = (amountPaint.textSize * 0.075f).coerceAtLeast(3f)
+                strokeCap = Paint.Cap.ROUND
+            }
         )
         canvas.restore()
+    }
+
+    private fun Paint.fitToWidth(text: String, maxWidth: Float) {
+        val currentWidth = measureText(text)
+        if (currentWidth > maxWidth) {
+            textSize *= maxWidth / currentWidth
+        }
+    }
+
+    private fun Canvas.drawOutlinedText(text: String, x: Float, y: Float, paint: Paint) {
+        val outline = Paint(paint).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = (paint.textSize * 0.15f).coerceAtLeast(4f)
+            strokeJoin = Paint.Join.ROUND
+        }
+        drawText(text, x, y, outline)
+        drawText(text, x, y, paint)
     }
 
     private fun BigDecimal.frenchAmount(): String =

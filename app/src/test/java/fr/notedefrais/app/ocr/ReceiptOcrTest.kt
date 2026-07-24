@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.math.BigDecimal
+import java.time.LocalDate
 
 class ReceiptOcrTest {
     @Test
@@ -51,5 +52,45 @@ class ReceiptOcrTest {
         assertEquals(BigDecimal("20.00"), candidates.single().amount)
         assertFalse(candidates.any { it.amount == BigDecimal("24.07") })
         assertFalse(candidates.any { it.amount == BigDecimal("5.00") })
+    }
+
+    @Test
+    fun invoice_date_is_extracted_and_ranked_first() {
+        val candidates = extractDateCandidates(
+            """
+            Livraison prévue le 26/07/2026
+            Date de facture : 24/07/2026
+            """.trimIndent()
+        )
+
+        assertEquals(LocalDate.of(2026, 7, 24), candidates.first().date)
+        assertEquals(LocalDate.of(2026, 7, 26), candidates.last().date)
+    }
+
+    @Test
+    fun short_year_and_french_textual_dates_are_supported() {
+        val candidates = extractDateCandidates(
+            """
+            DATE 24-07-26
+            Ticket du 23 juillet 2026
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf(LocalDate.of(2026, 7, 24), LocalDate.of(2026, 7, 23)),
+            candidates.map { it.date }
+        )
+    }
+
+    @Test
+    fun impossible_dates_are_ignored() {
+        val candidates = extractDateCandidates(
+            """
+            Date 31/02/2026
+            Date 32/07/2026
+            """.trimIndent()
+        )
+
+        assertEquals(emptyList<OcrDateCandidate>(), candidates)
     }
 }

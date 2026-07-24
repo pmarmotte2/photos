@@ -1,6 +1,7 @@
 package fr.notedefrais.app
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -87,11 +88,17 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.canhub.cropper.CropImageContract
+import com.canhub.cropper.CropImageContractOptions
+import com.canhub.cropper.CropException
+import com.canhub.cropper.CropImageOptions
+import com.canhub.cropper.CropImageView
 import fr.notedefrais.app.data.DailySummary
 import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
 import fr.notedefrais.app.ocr.OcrAmountCandidate
+import fr.notedefrais.app.ocr.OcrDateCandidate
 import fr.notedefrais.app.ocr.ReceiptOcr
 import java.io.File
 import java.math.BigDecimal
@@ -290,6 +297,7 @@ private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
     }
 }
 
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TripScreen(
@@ -315,10 +323,56 @@ private fun TripScreen(
             pendingSource = PendingSource(uri, mime.ifBlank { "image/jpeg" })
         }
     }
+    val cropLauncher = rememberLauncherForActivityResult(
+        contract = CropImageContract()
+    ) { result ->
+        result.uriContent?.let { croppedUri ->
+            pendingSource = PendingSource(croppedUri, "image/jpeg")
+        }
+        if (result.error != null &&
+            result.error !is CropException.Cancellation &&
+            result.uriContent == null
+        ) {
+            Toast.makeText(
+                context,
+                "Le recadrage n’a pas pu être effectué.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success) cameraUri?.let { pendingSource = PendingSource(it, "image/jpeg") }
+        if (success) {
+            cameraUri?.let { sourceUri ->
+                val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+                val croppedFile = File(
+                    directory,
+                    "cropped_${System.currentTimeMillis()}.jpg"
+                )
+                val croppedUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.files",
+                    croppedFile
+                )
+                cropLauncher.launch(
+                    CropImageContractOptions(
+                        uri = sourceUri,
+                        cropImageOptions = CropImageOptions(
+                            imageSourceIncludeCamera = false,
+                            imageSourceIncludeGallery = false,
+                            cropShape = CropImageView.CropShape.RECTANGLE,
+                            guidelines = CropImageView.Guidelines.ON,
+                            fixAspectRatio = false,
+                            activityTitle = "Recadrer la facture",
+                            customOutputUri = croppedUri,
+                            outputCompressFormat = Bitmap.CompressFormat.JPEG,
+                            outputCompressQuality = 95
+                        )
+                    )
+                )
+            }
+        }
     }
 
     fun startCamera() {
@@ -654,12 +708,19 @@ private fun AddReceiptDialog(
     var ocrCandidates by remember(source.uri) {
         mutableStateOf<List<OcrAmountCandidate>>(emptyList())
     }
+    var ocrDateCandidates by remember(source.uri) {
+        mutableStateOf<List<OcrDateCandidate>>(emptyList())
+    }
 
     LaunchedEffect(source.uri) {
         runCatching {
-            ReceiptOcr.detectAmounts(context.applicationContext, source.uri, source.mimeType)
+            ReceiptOcr.detect(context.applicationContext, source.uri, source.mimeType)
         }.onSuccess {
-            ocrCandidates = it
+            ocrCandidates = it.amounts
+            ocrDateCandidates = it.dates.filter { candidate ->
+                !candidate.date.isBefore(trip.startDate) &&
+                    !candidate.date.isAfter(trip.endDate)
+            }
         }
         ocrLoading = false
         ocrCompleted = true
@@ -698,6 +759,11 @@ private fun AddReceiptDialog(
                     maxDate = trip.endDate,
                     supportingText = "Entre ${trip.startDate.shortDateLabel()} et ${trip.endDate.shortDateLabel()}"
                 )
+                OcrDateSelector(
+                    candidates = ocrDateCandidates,
+                    selectedDate = date,
+                    onDateSelected = { date = it }
+                )
                 Text("Catégorie", fontWeight = FontWeight.Medium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ExpenseCategory.entries.forEach { option ->
@@ -725,6 +791,49 @@ private fun AddReceiptDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+@Composable
+private fun OcrDateSelector(
+    candidates: List<OcrDateCandidate>,
+    selectedDate: LocalDate,
+    onDateSelected: (LocalDate) -> Unit
+) {
+    if (candidates.isEmpty()) return
+
+    Column {
+        Text(
+            "Date détectée sur la facture",
+            fontWeight = FontWeight.Medium,
+            color = Green,
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(4.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(candidates, key = { it.date.toString() }) { candidate ->
+                AssistChip(
+                    onClick = { onDateSelected(candidate.date) },
+                    label = {
+                        Text(
+                            candidate.date.shortDateLabel(),
+                            fontWeight = if (selectedDate == candidate.date) {
+                                FontWeight.Bold
+                            } else {
+                                FontWeight.Normal
+                            }
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+            }
+        }
+    }
 }
 
 @Composable
