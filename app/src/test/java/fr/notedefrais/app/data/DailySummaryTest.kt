@@ -71,4 +71,38 @@ class DailySummaryTest {
 
         assertEquals(BigDecimal.ZERO, reimbursable)
     }
+
+    @Test
+    fun custom_type_limit_caps_a_non_meal_expense() {
+        val reimbursable = applyExpenseLimit(
+            receiptAmount = BigDecimal("180.00"),
+            typeLimit = BigDecimal("150.00")
+        )
+
+        assertEquals(BigDecimal("150.00"), reimbursable)
+    }
+
+    @Test
+    fun meal_uses_the_strictest_of_type_and_daily_limits() {
+        val reimbursable = calculateReimbursableAmount(
+            receiptAmount = BigDecimal("30.00"),
+            dailyAllowance = BigDecimal("40.00"),
+            alreadySpent = BigDecimal("12.00"),
+            typeLimit = BigDecimal("20.00")
+        )
+
+        assertEquals(BigDecimal("20.00"), reimbursable)
+    }
+
+    @Test
+    fun blank_custom_limit_keeps_the_existing_default_rule() {
+        val reimbursable = calculateReimbursableAmount(
+            receiptAmount = BigDecimal("30.00"),
+            dailyAllowance = BigDecimal("40.00"),
+            alreadySpent = BigDecimal("20.00"),
+            typeLimit = null
+        )
+
+        assertEquals(BigDecimal("20.00"), reimbursable)
+    }
 }

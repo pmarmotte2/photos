@@ -7,6 +7,7 @@ import fr.notedefrais.app.data.DailySummary
 import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.ExpenseRepository
 import fr.notedefrais.app.data.ExpenseState
+import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,16 +43,20 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         trip: Trip,
         date: LocalDate,
         amount: BigDecimal,
-        category: ExpenseCategory,
+        expenseType: ExpenseType,
         mimeType: String
     ): Result<Unit> = runCatching {
         _state.value = repository.importReceipt(
-            source, trip, date, amount, category, mimeType, _state.value
+            source, trip, date, amount, expenseType, mimeType, _state.value
         )
     }
 
     fun deleteReceipt(receipt: Receipt) {
         _state.value = repository.deleteReceipt(receipt, _state.value)
+    }
+
+    fun saveExpenseLimits(limits: Map<ExpenseType, BigDecimal>): Result<Unit> = runCatching {
+        _state.value = repository.saveExpenseLimits(limits, _state.value)
     }
 
     fun receiptsFor(tripId: String): List<Receipt> =

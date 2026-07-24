@@ -2,15 +2,15 @@
     <style name="Theme.NoteDeFrais" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">#F8F9F4</item>
-        <item name="android:navigationBarColor">#F8F9F4</item>
+        <item name="android:statusBarColor">#FFF8F7</item>
+        <item name="android:navigationBarColor">#FFF8F7</item>
     </style>
 
     <style name="Theme.NoteDeFrais.Crop" parent="Theme.AppCompat.Light.DarkActionBar">
-        <item name="colorPrimary">#1D6B52</item>
-        <item name="colorPrimaryDark">#14513D</item>
-        <item name="colorAccent">#1D6B52</item>
-        <item name="android:statusBarColor">#14513D</item>
+        <item name="colorPrimary">#E30613</item>
+        <item name="colorPrimaryDark">#A8000A</item>
+        <item name="colorAccent">#E30613</item>
+        <item name="android:statusBarColor">#A8000A</item>
         <item name="android:navigationBarColor">#111111</item>
     </style>
 </resources>

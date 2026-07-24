@@ -35,7 +35,8 @@ class ExpenseRepository(private val context: Context) {
 
         return ExpenseState(
             trips = trips.sortedByDescending { it.startDate },
-            receipts = receipts.sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category })
+            receipts = receipts.sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category }),
+            customExpenseLimits = loadExpenseLimits()
         )
     }
 
@@ -45,15 +46,26 @@ class ExpenseRepository(private val context: Context) {
         return updated
     }
 
+    fun saveExpenseLimits(
+        limits: Map<ExpenseType, BigDecimal>,
+        state: ExpenseState
+    ): ExpenseState {
+        require(limits.values.all { it >= BigDecimal.ZERO })
+        val updated = state.copy(customExpenseLimits = limits)
+        persist(updated)
+        return updated
+    }
+
     fun importReceipt(
         source: Uri,
         trip: Trip,
         date: LocalDate,
         amount: BigDecimal,
-        category: ExpenseCategory,
+        expenseType: ExpenseType,
         mimeType: String,
         state: ExpenseState
     ): ExpenseState {
+        val category = expenseType.category
         require(!date.isBefore(trip.startDate) && !date.isAfter(trip.endDate))
         val extension = extensionFor(mimeType)
         val genericName = buildString {
@@ -79,11 +91,17 @@ class ExpenseRepository(private val context: Context) {
                         it.date == date &&
                         it.category == ExpenseCategory.MEAL
                 }
-                .fold(BigDecimal.ZERO) { total, receipt -> total + receipt.amount }
+                .fold(BigDecimal.ZERO) { total, receipt -> total + receipt.reimbursableAmount }
+            val typeLimit = state.customExpenseLimits[expenseType]
             val reimbursableAmount = if (category == ExpenseCategory.MEAL) {
-                calculateReimbursableAmount(amount, trip.dailyMealAllowance, alreadySpent)
+                calculateReimbursableAmount(
+                    receiptAmount = amount,
+                    dailyAllowance = trip.dailyMealAllowance,
+                    alreadySpent = alreadySpent,
+                    typeLimit = typeLimit
+                )
             } else {
-                amount
+                applyExpenseLimit(amount, typeLimit)
             }
 
             if (reimbursableAmount < amount) {
@@ -101,6 +119,7 @@ class ExpenseRepository(private val context: Context) {
                 date = date,
                 amount = amount,
                 category = category,
+                expenseType = expenseType,
                 storedFileName = genericName,
                 mimeType = mimeType.ifBlank { mimeTypeFor(extension) },
                 reimbursableAmount = reimbursableAmount
@@ -136,7 +155,23 @@ class ExpenseRepository(private val context: Context) {
         preferences.edit()
             .putString(KEY_TRIPS, tripsJson.toString())
             .putString(KEY_RECEIPTS, receiptsJson.toString())
+            .putString(KEY_EXPENSE_LIMITS, state.customExpenseLimits.toJson().toString())
             .apply()
+    }
+
+    private fun loadExpenseLimits(): Map<ExpenseType, BigDecimal> = runCatching {
+        val json = JSONObject(preferences.getString(KEY_EXPENSE_LIMITS, "{}").orEmpty())
+        buildMap {
+            json.keys().forEach { key ->
+                val type = runCatching { ExpenseType.valueOf(key) }.getOrNull()
+                val value = runCatching { BigDecimal(json.getString(key)) }.getOrNull()
+                if (type != null && value != null && value >= BigDecimal.ZERO) put(type, value)
+            }
+        }
+    }.getOrDefault(emptyMap())
+
+    private fun Map<ExpenseType, BigDecimal>.toJson() = JSONObject().apply {
+        forEach { (type, limit) -> put(type.name, limit.toPlainString()) }
     }
 
     private fun Trip.toJson() = JSONObject()
@@ -152,6 +187,7 @@ class ExpenseRepository(private val context: Context) {
         .put("date", date.toString())
         .put("amount", amount.toPlainString())
         .put("category", category.name)
+        .put("expenseType", expenseType.name)
         .put("storedFileName", storedFileName)
         .put("mimeType", mimeType)
         .put("reimbursableAmount", reimbursableAmount.toPlainString())
@@ -164,16 +200,25 @@ class ExpenseRepository(private val context: Context) {
         dailyMealAllowance = BigDecimal(getString("dailyMealAllowance"))
     )
 
-    private fun JSONObject.toReceipt() = Receipt(
-        id = getString("id"),
-        tripId = getString("tripId"),
-        date = LocalDate.parse(getString("date")),
-        amount = BigDecimal(getString("amount")),
-        category = ExpenseCategory.valueOf(getString("category")),
-        storedFileName = getString("storedFileName"),
-        mimeType = getString("mimeType"),
-        reimbursableAmount = BigDecimal(optString("reimbursableAmount", getString("amount")))
-    )
+    private fun JSONObject.toReceipt(): Receipt {
+        val category = ExpenseCategory.valueOf(getString("category"))
+        val expenseType = runCatching {
+            ExpenseType.valueOf(getString("expenseType"))
+        }.getOrElse {
+            ExpenseType.defaultFor(category)
+        }
+        return Receipt(
+            id = getString("id"),
+            tripId = getString("tripId"),
+            date = LocalDate.parse(getString("date")),
+            amount = BigDecimal(getString("amount")),
+            category = category,
+            expenseType = expenseType,
+            storedFileName = getString("storedFileName"),
+            mimeType = getString("mimeType"),
+            reimbursableAmount = BigDecimal(optString("reimbursableAmount", getString("amount")))
+        )
+    }
 
     private fun extensionFor(mimeType: String) = when (mimeType.lowercase()) {
         "application/pdf" -> "pdf"
@@ -192,6 +237,7 @@ class ExpenseRepository(private val context: Context) {
     companion object {
         private const val KEY_TRIPS = "trips"
         private const val KEY_RECEIPTS = "receipts"
+        private const val KEY_EXPENSE_LIMITS = "expense_limits"
         private val FILE_DATE = DateTimeFormatter.ISO_LOCAL_DATE
     }
 }

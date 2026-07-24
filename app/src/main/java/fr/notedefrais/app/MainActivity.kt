@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -52,9 +53,11 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -68,6 +71,7 @@ import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -95,6 +99,7 @@ import com.canhub.cropper.CropImageOptions
 import com.canhub.cropper.CropImageView
 import fr.notedefrais.app.data.DailySummary
 import fr.notedefrais.app.data.ExpenseCategory
+import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
 import fr.notedefrais.app.ocr.OcrAmountCandidate
@@ -121,44 +126,98 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Green = Color(0xFF1D6B52)
-private val PaleGreen = Color(0xFFE3F3EB)
-private val WarmBackground = Color(0xFFF8F9F4)
-private val Orange = Color(0xFFE47B35)
-private val Red = Color(0xFFB3261E)
+private val FoRed = Color(0xFFE30613)
+private val FoDarkRed = Color(0xFFA8000A)
+private val FoPaleRed = Color(0xFFFDEBED)
+private val FoNavy = Color(0xFF1C2A44)
+private val FoBackground = Color(0xFFFFF8F7)
+private val LimitRed = Color(0xFFB00020)
+
+private val FoColorScheme = lightColorScheme(
+    primary = FoRed,
+    onPrimary = Color.White,
+    primaryContainer = FoPaleRed,
+    onPrimaryContainer = FoDarkRed,
+    secondary = FoNavy,
+    onSecondary = Color.White,
+    background = FoBackground,
+    onBackground = FoNavy,
+    surface = Color.White,
+    onSurface = Color(0xFF211A1B),
+    surfaceVariant = Color(0xFFF5EDEF),
+    onSurfaceVariant = Color(0xFF6C5B5E),
+    error = LimitRed
+)
 
 @Composable
 private fun ExpenseTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = MaterialTheme.colorScheme.copy(
-            primary = Green,
-            secondary = Orange,
-            background = WarmBackground,
-            surface = Color.White,
-            error = Red
-        ),
+        colorScheme = FoColorScheme,
         content = content
     )
+}
+
+@Composable
+private fun FoNotesBrand(subtitle: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            color = FoRed,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.size(40.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    "FO",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                "Fo Notes",
+                color = FoNavy,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp
+            )
+            Text(
+                subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+        }
+    }
 }
 
 @Composable
 private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var selectedTripId by remember { mutableStateOf<String?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
     val selectedTrip = state.trips.firstOrNull { it.id == selectedTripId }
 
-    if (selectedTrip == null) {
+    if (showSettings) {
+        ExpenseSettingsScreen(
+            limits = state.customExpenseLimits,
+            onBack = { showSettings = false },
+            onSave = vm::saveExpenseLimits
+        )
+    } else if (selectedTrip == null) {
         TripsScreen(
             trips = state.trips,
             receipts = state.receipts,
             onTripClick = { selectedTripId = it.id },
-            onCreateTrip = vm::createTrip
+            onCreateTrip = vm::createTrip,
+            onOpenSettings = { showSettings = true }
         )
     } else {
         TripScreen(
             trip = selectedTrip,
             receipts = state.receipts.filter { it.tripId == selectedTrip.id },
             summaries = vm.dailySummaries(selectedTrip),
+            expenseLimits = state.customExpenseLimits,
             onBack = { selectedTripId = null },
             onAddReceipt = vm::addReceipt,
             onDeleteReceipt = vm::deleteReceipt,
@@ -173,18 +232,21 @@ private fun TripsScreen(
     trips: List<Trip>,
     receipts: List<Receipt>,
     onTripClick: (Trip) -> Unit,
-    onCreateTrip: (String, LocalDate, LocalDate, BigDecimal) -> Result<Unit>
+    onCreateTrip: (String, LocalDate, LocalDate, BigDecimal) -> Result<Unit>,
+    onOpenSettings: () -> Unit
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = WarmBackground,
+        containerColor = FoBackground,
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("MES FRAIS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Green)
-                        Text("Déplacements", fontWeight = FontWeight.SemiBold)
+                    FoNotesBrand(subtitle = "Déplacements")
+                },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Paramétrage")
                     }
                 }
             )
@@ -233,6 +295,135 @@ private fun TripsScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpenseSettingsScreen(
+    limits: Map<ExpenseType, BigDecimal>,
+    onBack: () -> Unit,
+    onSave: (Map<ExpenseType, BigDecimal>) -> Result<Unit>
+) {
+    val context = LocalContext.current
+    var category by remember { mutableStateOf(ExpenseCategory.TRANSPORT) }
+    var values by remember(limits) {
+        mutableStateOf(
+            limits.mapValues { (_, amount) -> amount.toFrenchAmount() }
+        )
+    }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun save() {
+        val parsed = buildMap {
+            values.forEach { (type, text) ->
+                if (text.isNotBlank()) {
+                    val amount = text.toMoneyOrNull()
+                    if (amount == null || amount.signum() < 0) {
+                        error = "Le plafond « ${type.displayLabel} » est invalide."
+                        return
+                    }
+                    put(type, amount)
+                }
+            }
+        }
+        error = null
+        onSave(parsed)
+            .onSuccess {
+                Toast.makeText(context, "Paramétrage enregistré", Toast.LENGTH_SHORT).show()
+                onBack()
+            }
+            .onFailure {
+                error = it.message ?: "Enregistrement impossible."
+            }
+    }
+
+    Scaffold(
+        containerColor = FoBackground,
+        topBar = {
+            CenterAlignedTopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                    }
+                },
+                title = {
+                    FoNotesBrand(subtitle = "Plafonds de dépenses")
+                },
+                actions = {
+                    TextButton(onClick = ::save) {
+                        Text("Enregistrer")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text(
+                    "Laissez un champ vide pour conserver la règle par défaut. Les plafonds Paris, province et étranger se règlent séparément.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
+            }
+            item {
+                ExpenseCategoryDropdown(
+                    selected = category,
+                    onSelected = { category = it }
+                )
+            }
+            error?.let { message ->
+                item {
+                    Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                }
+            }
+            items(
+                items = ExpenseType.forCategory(category),
+                key = { it.name }
+            ) { type ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(type.displayLabel, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = values[type].orEmpty(),
+                            onValueChange = { value ->
+                                values = values.toMutableMap().apply {
+                                    if (value.isBlank()) remove(type) else put(type, value)
+                                }
+                                error = null
+                            },
+                            label = { Text("Plafond personnalisé (€)") },
+                            placeholder = { Text("Valeur par défaut") },
+                            supportingText = {
+                                Text(
+                                    if (type.category == ExpenseCategory.MEAL) {
+                                        "Par défaut : plafond repas quotidien du déplacement"
+                                    } else {
+                                        "Par défaut : aucun plafond spécifique"
+                                    }
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+            item {
+                Button(onClick = ::save, modifier = Modifier.fillMaxWidth()) {
+                    Text("Enregistrer les plafonds")
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun EmptyTrips(modifier: Modifier = Modifier, onCreate: () -> Unit) {
     Column(
@@ -240,9 +431,9 @@ private fun EmptyTrips(modifier: Modifier = Modifier, onCreate: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Surface(color = PaleGreen, shape = CircleShape, modifier = Modifier.size(88.dp)) {
+        Surface(color = FoPaleRed, shape = CircleShape, modifier = Modifier.size(88.dp)) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.ReceiptLong, null, tint = Green, modifier = Modifier.size(42.dp))
+                Icon(Icons.Default.ReceiptLong, null, tint = FoRed, modifier = Modifier.size(42.dp))
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -268,9 +459,9 @@ private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
     ) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = PaleGreen, shape = RoundedCornerShape(12.dp)) {
+                Surface(color = FoPaleRed, shape = RoundedCornerShape(12.dp)) {
                     Icon(
-                        Icons.Default.DirectionsCar, null, tint = Green,
+                        Icons.Default.DirectionsCar, null, tint = FoRed,
                         modifier = Modifier.padding(10.dp).size(24.dp)
                     )
                 }
@@ -283,7 +474,7 @@ private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
                         fontSize = 14.sp
                     )
                 }
-                Text(total.euros(), color = Green, fontWeight = FontWeight.Bold)
+                Text(total.euros(), color = FoRed, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = Color(0xFFE9ECE7))
@@ -291,7 +482,7 @@ private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
             Row {
                 Text("${receipts.size} justificatif${if (receipts.size > 1) "s" else ""}", fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                Text("${trip.dailyMealAllowance.euros()} / jour repas", color = Green, fontSize = 13.sp)
+                Text("${trip.dailyMealAllowance.euros()} / jour repas", color = FoRed, fontSize = 13.sp)
             }
         }
     }
@@ -304,8 +495,9 @@ private fun TripScreen(
     trip: Trip,
     receipts: List<Receipt>,
     summaries: List<DailySummary>,
+    expenseLimits: Map<ExpenseType, BigDecimal>,
     onBack: () -> Unit,
-    onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseCategory, String) -> Result<Unit>,
+    onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String) -> Result<Unit>,
     onDeleteReceipt: (Receipt) -> Unit,
     fileFor: (Receipt) -> File
 ) {
@@ -387,7 +579,7 @@ private fun TripScreen(
     }
 
     Scaffold(
-        containerColor = WarmBackground,
+        containerColor = FoBackground,
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -448,9 +640,10 @@ private fun TripScreen(
         AddReceiptDialog(
             trip = trip,
             source = source,
+            expenseLimits = expenseLimits,
             onDismiss = { pendingSource = null },
-            onConfirm = { date, amount, category ->
-                onAddReceipt(source.uri, trip, date, amount, category, source.mimeType)
+            onConfirm = { date, amount, expenseType ->
+                onAddReceipt(source.uri, trip, date, amount, expenseType, source.mimeType)
                     .onSuccess {
                         pendingSource = null
                         Toast.makeText(context, "Justificatif enregistré", Toast.LENGTH_SHORT).show()
@@ -486,7 +679,7 @@ private fun TripOverview(trip: Trip, summaries: List<DailySummary>, receipts: Li
     val meals = summaries.fold(BigDecimal.ZERO) { sum, day -> sum + day.mealSpent }
     val allowance = trip.dailyMealAllowance * summaries.size.toBigDecimal()
     Card(
-        colors = CardDefaults.cardColors(containerColor = Green),
+        colors = CardDefaults.cardColors(containerColor = FoNavy),
         shape = RoundedCornerShape(22.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -533,22 +726,22 @@ private fun DayCard(
                     Text(
                         if (over) "Plafond dépassé de ${summary.remaining.abs().euros()}"
                         else "${summary.remaining.euros()} disponibles pour les repas",
-                        color = if (over) Red else Green,
+                        color = if (over) LimitRed else FoRed,
                         fontSize = 13.sp
                     )
                 }
                 Text(
                     "${summary.mealSpent.euros()} / ${summary.allowance.euros()}",
                     fontWeight = FontWeight.SemiBold,
-                    color = if (over) Red else MaterialTheme.colorScheme.onSurface
+                    color = if (over) LimitRed else MaterialTheme.colorScheme.onSurface
                 )
             }
             Spacer(Modifier.height(10.dp))
             LinearProgressIndicator(
                 progress = { summary.ratio },
                 modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = if (over) Red else Green,
-                trackColor = PaleGreen
+                color = if (over) LimitRed else FoRed,
+                trackColor = FoPaleRed
             )
             if (receipts.isEmpty()) {
                 Spacer(Modifier.height(16.dp))
@@ -572,13 +765,13 @@ private fun ReceiptRow(receipt: Receipt, onOpen: () -> Unit, onDelete: () -> Uni
     ) {
         Surface(color = categoryColor(receipt.category), shape = RoundedCornerShape(10.dp)) {
             Icon(
-                categoryIcon(receipt.category), null, tint = Green,
+                categoryIcon(receipt.category), null, tint = FoRed,
                 modifier = Modifier.padding(9.dp).size(21.dp)
             )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(receipt.category.label, fontWeight = FontWeight.Medium)
+            Text(receipt.expenseType.displayLabel, fontWeight = FontWeight.Medium)
             Text(
                 receipt.storedFileName,
                 maxLines = 1,
@@ -591,7 +784,7 @@ private fun ReceiptRow(receipt: Receipt, onOpen: () -> Unit, onDelete: () -> Uni
             Text(
                 receipt.reimbursableAmount.euros(),
                 fontWeight = FontWeight.SemiBold,
-                color = if (receipt.isCapped) Red else MaterialTheme.colorScheme.onSurface
+                color = if (receipt.isCapped) LimitRed else MaterialTheme.colorScheme.onSurface
             )
             if (receipt.isCapped) {
                 Text(
@@ -697,14 +890,16 @@ private fun SourceDialog(onDismiss: () -> Unit, onCamera: () -> Unit, onFile: ()
 private fun AddReceiptDialog(
     trip: Trip,
     source: PendingSource,
+    expenseLimits: Map<ExpenseType, BigDecimal>,
     onDismiss: () -> Unit,
-    onConfirm: (LocalDate, BigDecimal, ExpenseCategory) -> Unit
+    onConfirm: (LocalDate, BigDecimal, ExpenseType) -> Unit
 ) {
     val context = LocalContext.current
     val defaultDate = LocalDate.now().coerceIn(trip.startDate, trip.endDate)
     var date by remember { mutableStateOf(defaultDate) }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ExpenseCategory.MEAL) }
+    var expenseType by remember { mutableStateOf(ExpenseType.defaultFor(category)) }
     var error by remember { mutableStateOf<String?>(null) }
     var ocrLoading by remember(source.uri) { mutableStateOf(true) }
     var ocrCompleted by remember(source.uri) { mutableStateOf(false) }
@@ -737,10 +932,10 @@ private fun AddReceiptDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         if (source.mimeType == "application/pdf") Icons.Default.Description else Icons.Default.InsertDriveFile,
-                        null, tint = Green
+                        null, tint = FoRed
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(if (source.mimeType == "application/pdf") "Document PDF" else "Image", color = Green)
+                    Text(if (source.mimeType == "application/pdf") "Document PDF" else "Image", color = FoRed)
                 }
                 OcrAmountSelector(
                     loading = ocrLoading,
@@ -767,16 +962,31 @@ private fun AddReceiptDialog(
                     selectedDate = date,
                     onDateSelected = { date = it }
                 )
-                Text("Catégorie", fontWeight = FontWeight.Medium)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ExpenseCategory.entries.forEach { option ->
-                        FilterChip(
-                            selected = category == option,
-                            onClick = { category = option },
-                            label = { Text(option.label, fontSize = 11.sp) }
-                        )
+                ExpenseCategoryDropdown(
+                    selected = category,
+                    onSelected = {
+                        category = it
+                        expenseType = ExpenseType.defaultFor(it)
                     }
-                }
+                )
+                ExpenseTypeDropdown(
+                    category = category,
+                    selected = expenseType,
+                    onSelected = { expenseType = it }
+                )
+                val configuredLimit = expenseLimits[expenseType]
+                Text(
+                    when {
+                        configuredLimit != null ->
+                            "Plafond configuré : ${configuredLimit.euros()}"
+                        category == ExpenseCategory.MEAL ->
+                            "Règle par défaut : ${trip.dailyMealAllowance.euros()} par jour pour les repas"
+                        else ->
+                            "Règle par défaut : aucun plafond spécifique"
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
         },
@@ -789,11 +999,89 @@ private fun AddReceiptDialog(
                         "La date doit appartenir au déplacement."
                     else -> null
                 }
-                if (error == null) onConfirm(date, parsedAmount!!, category)
+                if (error == null) onConfirm(date, parsedAmount!!, expenseType)
             }) { Text("Enregistrer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpenseCategoryDropdown(
+    selected: ExpenseCategory,
+    onSelected: (ExpenseCategory) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selected.label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Catégorie") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            ExpenseCategory.entries
+                .filterNot { it == ExpenseCategory.OTHER }
+                .forEach { category ->
+                DropdownMenuItem(
+                    text = { Text(category.label) },
+                    onClick = {
+                        onSelected(category)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpenseTypeDropdown(
+    category: ExpenseCategory,
+    selected: ExpenseType,
+    onSelected: (ExpenseType) -> Unit
+) {
+    var expanded by remember(category) { mutableStateOf(false) }
+    val options = remember(category) { ExpenseType.forCategory(category) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selected.displayLabel,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Type de frais ATOS") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { type ->
+                DropdownMenuItem(
+                    text = { Text(type.displayLabel) },
+                    onClick = {
+                        onSelected(type)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -808,7 +1096,7 @@ private fun OcrDateSelector(
         Text(
             "Date détectée sur la facture",
             fontWeight = FontWeight.Medium,
-            color = Green,
+            color = FoRed,
             fontSize = 13.sp
         )
         Spacer(Modifier.height(4.dp))
@@ -853,7 +1141,7 @@ private fun OcrAmountSelector(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth().background(
-                    PaleGreen,
+                    FoPaleRed,
                     RoundedCornerShape(10.dp)
                 ).padding(12.dp)
             ) {
@@ -861,7 +1149,7 @@ private fun OcrAmountSelector(
                     modifier = Modifier.size(20.dp),
                     strokeWidth = 2.dp
                 )
-                Text("Recherche des montants…", fontSize = 13.sp, color = Green)
+                Text("Recherche des montants…", fontSize = 13.sp, color = FoRed)
             }
         }
 
@@ -870,7 +1158,7 @@ private fun OcrAmountSelector(
                 Text(
                     "Montants détectés",
                     fontWeight = FontWeight.Medium,
-                    color = Green
+                    color = FoRed
                 )
                 Text(
                     "Touchez le montant TTC de la facture.",
@@ -1020,13 +1308,21 @@ private fun categoryIcon(category: ExpenseCategory): ImageVector = when (categor
     ExpenseCategory.MEAL -> Icons.Default.Restaurant
     ExpenseCategory.TRANSPORT -> Icons.Default.DirectionsCar
     ExpenseCategory.HOTEL -> Icons.Default.Hotel
+    ExpenseCategory.HOUSING -> Icons.Default.Hotel
+    ExpenseCategory.TELECOM -> Icons.Default.MoreHoriz
+    ExpenseCategory.PROFESSIONAL -> Icons.Default.ReceiptLong
+    ExpenseCategory.MOBILITY -> Icons.Default.DirectionsCar
     ExpenseCategory.OTHER -> Icons.Default.MoreHoriz
 }
 
 private fun categoryColor(category: ExpenseCategory): Color = when (category) {
-    ExpenseCategory.MEAL -> Color(0xFFE3F3EB)
+    ExpenseCategory.MEAL -> FoPaleRed
     ExpenseCategory.TRANSPORT -> Color(0xFFE8EFFB)
-    ExpenseCategory.HOTEL -> Color(0xFFF5EAF8)
+    ExpenseCategory.HOTEL -> Color(0xFFFFF0D8)
+    ExpenseCategory.HOUSING -> Color(0xFFF2EAF8)
+    ExpenseCategory.TELECOM -> Color(0xFFE8EFFB)
+    ExpenseCategory.PROFESSIONAL -> Color(0xFFFFF1DF)
+    ExpenseCategory.MOBILITY -> Color(0xFFE9EDF4)
     ExpenseCategory.OTHER -> Color(0xFFF3F0E8)
 }
 

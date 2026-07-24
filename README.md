@@ -1,4 +1,4 @@
-# Mes frais — application Android
+# Fo Notes — application Android
 
 MVP Android natif pour classer des justificatifs par déplacement et suivre les
 droits repas au jour le jour.
@@ -17,7 +17,11 @@ droits repas au jour le jour.
 - total des repas, montant encore disponible et signalement d'un dépassement ;
 - calcul du montant remboursable et annotation rouge automatique du justificatif
   lorsqu'un repas dépasse le droit journalier restant ;
-- catégories repas, transport, hôtel et autre ;
+- catalogue des types de frais ATOS regroupés par catégorie ;
+- écran de paramétrage des plafonds par type de frais, avec réglages distincts
+  pour Paris, la province et l'étranger ;
+- application du plafond personnalisé le plus strict et annotation rouge
+  automatique du montant remboursable ;
 - suppression protégée par une confirmation.
 
 Les données et fichiers restent uniquement dans l'espace privé de l'application.
@@ -41,8 +45,12 @@ poste. Pour régénérer l'APK de test depuis PowerShell :
 
 L'APK est produit dans `app\build\outputs\apk\debug\app-debug.apk`.
 
+## Télécharger l'APK
+
+La dernière version de test est disponible directement dans le dépôt :
+[Fo Notes 1.6.0](releases/Fo-Notes-1.6.0.apk).
+
 ## Limites connues du MVP
 
 - l'OCR analyse uniquement la première page des documents PDF ;
-- pas de synchronisation cloud ni d'export groupé ;
-- les dates sont saisies au format ISO `AAAA-MM-JJ`.
+- pas de synchronisation cloud ni d'export groupé.
