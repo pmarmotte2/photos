@@ -46,6 +46,27 @@ class ExpenseRepository(private val context: Context) {
         return updated
     }
 
+    fun updateTripTracking(
+        tripId: String,
+        status: TripStatus,
+        submittedDate: LocalDate?,
+        state: ExpenseState
+    ): ExpenseState {
+        val trip = state.trips.firstOrNull { it.id == tripId }
+            ?: error("Le déplacement est introuvable.")
+        val updatedTrip = trip.copy(
+            status = status,
+            submittedDate = if (status == TripStatus.DRAFT) null else submittedDate
+        )
+        val updated = state.copy(
+            trips = state.trips
+                .map { if (it.id == tripId) updatedTrip else it }
+                .sortedByDescending { it.startDate }
+        )
+        persist(updated)
+        return updated
+    }
+
     fun saveExpenseLimits(
         limits: Map<ExpenseType, BigDecimal>,
         state: ExpenseState
@@ -253,6 +274,8 @@ class ExpenseRepository(private val context: Context) {
         .put("startDate", startDate.toString())
         .put("endDate", endDate.toString())
         .put("dailyMealAllowance", dailyMealAllowance.toPlainString())
+        .put("status", status.name)
+        .put("submittedDate", submittedDate?.toString())
 
     private fun Receipt.toJson() = JSONObject()
         .put("id", id)
@@ -265,13 +288,28 @@ class ExpenseRepository(private val context: Context) {
         .put("mimeType", mimeType)
         .put("reimbursableAmount", reimbursableAmount.toPlainString())
 
-    private fun JSONObject.toTrip() = Trip(
-        id = getString("id"),
-        name = getString("name"),
-        startDate = LocalDate.parse(getString("startDate")),
-        endDate = LocalDate.parse(getString("endDate")),
-        dailyMealAllowance = BigDecimal(getString("dailyMealAllowance"))
-    )
+    private fun JSONObject.toTrip(): Trip {
+        val status = runCatching {
+            TripStatus.valueOf(optString("status", TripStatus.DRAFT.name))
+        }.getOrDefault(TripStatus.DRAFT)
+        val submittedDate = optString("submittedDate")
+            .takeIf { it.isNotBlank() && it != "null" }
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val safeStatus = if (status != TripStatus.DRAFT && submittedDate == null) {
+            TripStatus.DRAFT
+        } else {
+            status
+        }
+        return Trip(
+            id = getString("id"),
+            name = getString("name"),
+            startDate = LocalDate.parse(getString("startDate")),
+            endDate = LocalDate.parse(getString("endDate")),
+            dailyMealAllowance = BigDecimal(getString("dailyMealAllowance")),
+            status = safeStatus,
+            submittedDate = if (safeStatus == TripStatus.DRAFT) null else submittedDate
+        )
+    }
 
     private fun JSONObject.toReceipt(): Receipt {
         val category = ExpenseCategory.valueOf(getString("category"))

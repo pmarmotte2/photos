@@ -4,17 +4,30 @@ import java.math.BigDecimal
 import java.time.LocalDate
 import java.util.UUID
 
+enum class TripStatus(val label: String) {
+    DRAFT("En cours de saisie"),
+    SENT("Envoyée"),
+    VALIDATED("Validée"),
+    REIMBURSED("Remboursée")
+}
+
 data class Trip(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val startDate: LocalDate,
     val endDate: LocalDate,
-    val dailyMealAllowance: BigDecimal = BigDecimal("40.00")
+    val dailyMealAllowance: BigDecimal = BigDecimal("40.00"),
+    val status: TripStatus = TripStatus.DRAFT,
+    val submittedDate: LocalDate? = null
 ) {
     init {
         require(name.isNotBlank())
         require(!endDate.isBefore(startDate))
         require(dailyMealAllowance >= BigDecimal.ZERO)
+        require(
+            (status == TripStatus.DRAFT && submittedDate == null) ||
+                (status != TripStatus.DRAFT && submittedDate != null)
+        )
     }
 }
 

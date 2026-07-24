@@ -10,6 +10,7 @@ import fr.notedefrais.app.data.ExpenseState
 import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
+import fr.notedefrais.app.data.TripStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +75,19 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     fun saveExpenseLimits(limits: Map<ExpenseType, BigDecimal>): Result<Unit> = runCatching {
         _state.value = repository.saveExpenseLimits(limits, _state.value)
+    }
+
+    fun updateTripTracking(
+        tripId: String,
+        status: TripStatus,
+        submittedDate: LocalDate?
+    ): Result<Unit> = runCatching {
+        _state.value = repository.updateTripTracking(
+            tripId = tripId,
+            status = status,
+            submittedDate = submittedDate,
+            state = _state.value
+        )
     }
 
     fun receiptsFor(tripId: String): List<Receipt> =

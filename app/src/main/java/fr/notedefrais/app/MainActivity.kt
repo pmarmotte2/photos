@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -104,6 +105,8 @@ import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
+import fr.notedefrais.app.data.TripStatus
+import fr.notedefrais.app.export.TripEmailExporter
 import fr.notedefrais.app.ocr.OcrAmountCandidate
 import fr.notedefrais.app.ocr.OcrDateCandidate
 import fr.notedefrais.app.ocr.ReceiptOcr
@@ -212,7 +215,9 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
             receipts = state.receipts,
             onTripClick = { selectedTripId = it.id },
             onCreateTrip = vm::createTrip,
-            onOpenSettings = { showSettings = true }
+            onOpenSettings = { showSettings = true },
+            onUpdateTripTracking = vm::updateTripTracking,
+            fileFor = vm::fileFor
         )
     } else {
         TripScreen(
@@ -236,9 +241,13 @@ private fun TripsScreen(
     receipts: List<Receipt>,
     onTripClick: (Trip) -> Unit,
     onCreateTrip: (String, LocalDate, LocalDate, BigDecimal) -> Result<Unit>,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onUpdateTripTracking: (String, TripStatus, LocalDate?) -> Result<Unit>,
+    fileFor: (Receipt) -> File
 ) {
+    val context = LocalContext.current
     var showCreateDialog by remember { mutableStateOf(false) }
+    var tripToTrack by remember { mutableStateOf<Trip?>(null) }
 
     Scaffold(
         containerColor = FoBackground,
@@ -282,7 +291,15 @@ private fun TripsScreen(
                 }
                 items(trips, key = { it.id }) { trip ->
                     val tripReceipts = receipts.filter { it.tripId == trip.id }
-                    TripCard(trip, tripReceipts, onClick = { onTripClick(trip) })
+                    TripCard(
+                        trip = trip,
+                        receipts = tripReceipts,
+                        onClick = { onTripClick(trip) },
+                        onTracking = { tripToTrack = trip },
+                        onExport = {
+                            exportTripByEmail(context, trip, tripReceipts, fileFor)
+                        }
+                    )
                 }
             }
         }
@@ -293,6 +310,27 @@ private fun TripsScreen(
             onDismiss = { showCreateDialog = false },
             onConfirm = { name, start, end, allowance ->
                 onCreateTrip(name, start, end, allowance).onSuccess { showCreateDialog = false }
+            }
+        )
+    }
+
+    tripToTrack?.let { trip ->
+        TripTrackingDialog(
+            trip = trip,
+            onDismiss = { tripToTrack = null },
+            onConfirm = { status, submittedDate ->
+                onUpdateTripTracking(trip.id, status, submittedDate)
+                    .onSuccess {
+                        tripToTrack = null
+                        Toast.makeText(context, "Suivi mis à jour", Toast.LENGTH_SHORT).show()
+                    }
+                    .onFailure {
+                        Toast.makeText(
+                            context,
+                            it.message ?: "Mise à jour impossible",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
             }
         )
     }
@@ -452,7 +490,13 @@ private fun EmptyTrips(modifier: Modifier = Modifier, onCreate: () -> Unit) {
 }
 
 @Composable
-private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
+private fun TripCard(
+    trip: Trip,
+    receipts: List<Receipt>,
+    onClick: () -> Unit,
+    onTracking: () -> Unit,
+    onExport: () -> Unit
+) {
     val total = receipts.fold(BigDecimal.ZERO) { sum, receipt -> sum + receipt.amount }
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -479,6 +523,29 @@ private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
                 }
                 Text(total.euros(), color = FoRed, fontWeight = FontWeight.Bold)
             }
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = tripStatusColor(trip.status),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        trip.status.label,
+                        color = tripStatusTextColor(trip.status),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+                trip.submittedDate?.let { submittedDate ->
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Soumise le ${submittedDate.shortDateLabel()}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = Color(0xFFE9ECE7))
             Spacer(Modifier.height(12.dp))
@@ -486,6 +553,27 @@ private fun TripCard(trip: Trip, receipts: List<Receipt>, onClick: () -> Unit) {
                 Text("${receipts.size} justificatif${if (receipts.size > 1) "s" else ""}", fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
                 Text("${trip.dailyMealAllowance.euros()} / jour repas", color = FoRed, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onTracking, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Suivi")
+                }
+                OutlinedButton(
+                    onClick = onExport,
+                    enabled = receipts.isNotEmpty(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("E-mail")
+                }
             }
         }
     }
@@ -596,6 +684,14 @@ private fun TripScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { exportTripByEmail(context, trip, receipts, fileFor) },
+                        enabled = receipts.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.Email, contentDescription = "Exporter par e-mail")
                     }
                 }
             )
@@ -904,6 +1000,123 @@ private fun CreateTripDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TripTrackingDialog(
+    trip: Trip,
+    onDismiss: () -> Unit,
+    onConfirm: (TripStatus, LocalDate?) -> Unit
+) {
+    val today = LocalDate.now()
+    var status by remember(trip.id) { mutableStateOf(trip.status) }
+    var submittedDate by remember(trip.id) { mutableStateOf(trip.submittedDate) }
+    var error by remember(trip.id) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Suivi de la note de frais") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    trip.name,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FoNavy
+                )
+                TripStatusDropdown(
+                    selected = status,
+                    onSelected = { selected ->
+                        status = selected
+                        submittedDate = if (selected == TripStatus.DRAFT) {
+                            null
+                        } else {
+                            submittedDate ?: today
+                        }
+                        error = null
+                    }
+                )
+                if (status != TripStatus.DRAFT) {
+                    CalendarDateField(
+                        label = "Date de soumission",
+                        value = submittedDate ?: today,
+                        onValueChange = {
+                            submittedDate = it
+                            error = null
+                        },
+                        minDate = trip.startDate,
+                        maxDate = today,
+                        supportingText = "Date d’envoi de la note de frais"
+                    )
+                } else {
+                    Text(
+                        "La date de soumission sera demandée lorsque la note sera envoyée.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                }
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                error = when {
+                    status != TripStatus.DRAFT && submittedDate == null ->
+                        "Choisissez la date de soumission."
+                    submittedDate?.isAfter(today) == true ->
+                        "La date de soumission ne peut pas être dans le futur."
+                    submittedDate?.isBefore(trip.startDate) == true ->
+                        "La date de soumission ne peut pas précéder le déplacement."
+                    else -> null
+                }
+                if (error == null) onConfirm(status, submittedDate)
+            }) {
+                Text("Enregistrer")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TripStatusDropdown(
+    selected: TripStatus,
+    onSelected: (TripStatus) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selected.label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Statut") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            TripStatus.entries.forEach { status ->
+                DropdownMenuItem(
+                    text = { Text(status.label) },
+                    onClick = {
+                        onSelected(status)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -1438,6 +1651,26 @@ private fun CalendarDateField(
 
 private data class PendingSource(val uri: Uri, val mimeType: String)
 
+private fun exportTripByEmail(
+    context: android.content.Context,
+    trip: Trip,
+    receipts: List<Receipt>,
+    fileFor: (Receipt) -> File
+) {
+    TripEmailExporter.send(
+        context = context,
+        trip = trip,
+        receipts = receipts,
+        sourceFile = fileFor
+    ).onFailure { error ->
+        Toast.makeText(
+            context,
+            error.message ?: "L’export du déplacement est impossible.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+}
+
 private fun openReceipt(context: android.content.Context, receipt: Receipt, file: File) {
     if (!file.exists()) {
         Toast.makeText(context, "Le fichier n’existe plus.", Toast.LENGTH_SHORT).show()
@@ -1474,6 +1707,20 @@ private fun categoryColor(category: ExpenseCategory): Color = when (category) {
     ExpenseCategory.PROFESSIONAL -> Color(0xFFFFF1DF)
     ExpenseCategory.MOBILITY -> Color(0xFFE9EDF4)
     ExpenseCategory.OTHER -> Color(0xFFF3F0E8)
+}
+
+private fun tripStatusColor(status: TripStatus): Color = when (status) {
+    TripStatus.DRAFT -> Color(0xFFF1ECEE)
+    TripStatus.SENT -> Color(0xFFE8EFFB)
+    TripStatus.VALIDATED -> Color(0xFFFFF0D8)
+    TripStatus.REIMBURSED -> Color(0xFFE4F3E8)
+}
+
+private fun tripStatusTextColor(status: TripStatus): Color = when (status) {
+    TripStatus.DRAFT -> Color(0xFF665B5D)
+    TripStatus.SENT -> Color(0xFF234B83)
+    TripStatus.VALIDATED -> Color(0xFF805500)
+    TripStatus.REIMBURSED -> Color(0xFF1E6334)
 }
 
 private fun BigDecimal.euros(): String =
