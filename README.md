@@ -20,6 +20,7 @@ droits repas au jour le jour.
   avec récapitulatif CSV et justificatifs renommés explicitement ;
 - suivi de la date de soumission et du statut de chaque note de frais :
   en cours de saisie, envoyée, validée ou remboursée ;
+- message d'information dynamique récupéré au démarrage depuis le VPS ;
 - total des repas, montant encore disponible et signalement d'un dépassement ;
 - calcul du montant remboursable et annotation rouge automatique du justificatif
   lorsqu'un repas dépasse le droit journalier restant ;
@@ -51,10 +52,19 @@ poste. Pour régénérer l'APK de test depuis PowerShell :
 
 L'APK est produit dans `app\build\outputs\apk\debug\app-debug.apk`.
 
+## Message dynamique
+
+Le message affiché au lancement est lu depuis
+`https://82.165.175.13/fo-notes-message.txt`.
+
+Pour le modifier sans republier l'application, éditer sur le VPS :
+`/var/www/fo-notes/fo-notes-message.txt`.
+Un fichier vide désactive la popup.
+
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.9.0](releases/Fo-Notes-1.9.0.apk).
+[Fo Notes 1.10.0](releases/Fo-Notes-1.10.0.apk).
 
 ## Limites connues du MVP
 

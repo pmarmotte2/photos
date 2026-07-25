@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
@@ -110,6 +111,7 @@ import fr.notedefrais.app.export.TripEmailExporter
 import fr.notedefrais.app.ocr.OcrAmountCandidate
 import fr.notedefrais.app.ocr.OcrDateCandidate
 import fr.notedefrais.app.ocr.ReceiptOcr
+import fr.notedefrais.app.remote.RemoteAnnouncement
 import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -201,7 +203,12 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var selectedTripId by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var remoteAnnouncement by remember { mutableStateOf<String?>(null) }
     val selectedTrip = state.trips.firstOrNull { it.id == selectedTripId }
+
+    LaunchedEffect(Unit) {
+        remoteAnnouncement = RemoteAnnouncement.fetch()
+    }
 
     if (showSettings) {
         ExpenseSettingsScreen(
@@ -230,6 +237,31 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
             onUpdateReceipt = vm::updateReceipt,
             onDeleteReceipt = vm::deleteReceipt,
             fileFor = vm::fileFor
+        )
+    }
+
+    remoteAnnouncement?.let { message ->
+        AlertDialog(
+            onDismissRequest = { remoteAnnouncement = null },
+            icon = {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = FoRed
+                )
+            },
+            title = { Text("Information Fo Notes") },
+            text = {
+                Text(
+                    message,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { remoteAnnouncement = null }) {
+                    Text("J’ai compris")
+                }
+            }
         )
     }
 }

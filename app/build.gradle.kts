@@ -12,8 +12,8 @@ android {
         applicationId = "fr.notedefrais.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.9.0"
+        versionCode = 13
+        versionName = "1.10.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
