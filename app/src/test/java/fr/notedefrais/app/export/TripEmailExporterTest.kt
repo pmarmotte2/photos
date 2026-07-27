@@ -53,8 +53,24 @@ class TripEmailExporterTest {
 
         val names = buildAttachmentNames(receipts)
 
-        assertEquals("06_Lunch_2026-07-22.jpg", names.getValue("first"))
-        assertEquals("06_Lunch_2026-07-22_2.jpg", names.getValue("second"))
+        assertEquals("06_Lunch_2026-07-22.pdf", names.getValue("first"))
+        assertEquals("06_Lunch_2026-07-22_2.pdf", names.getValue("second"))
+    }
+
+    @Test
+    fun existingPdfKeepsPdfExtensionInExport() {
+        val date = LocalDate.of(2026, 7, 22)
+        val pdfReceipt = receipt(
+            id = "invoice",
+            date = date,
+            type = ExpenseType.LUNCH,
+            mimeType = "application/pdf",
+            storedFileName = "invoice.pdf"
+        )
+
+        val names = buildAttachmentNames(listOf(pdfReceipt))
+
+        assertEquals("06_Lunch_2026-07-22.pdf", names.getValue("invoice"))
     }
 
     @Test
@@ -76,7 +92,7 @@ class TripEmailExporterTest {
         val csv = buildCsv(trip, lines)
 
         assertTrue(csv.contains("Date;Code;Libellé;Montant TTC;Montant remboursable;Pièce jointe"))
-        assertTrue(csv.contains("06_Lunch_2026-07-22.jpg"))
+        assertTrue(csv.contains("06_Lunch_2026-07-22.pdf"))
         assertTrue(Regex("2026-07-22.*\\R\\R2026-07-23", RegexOption.DOT_MATCHES_ALL).containsMatchIn(csv))
     }
 
@@ -105,8 +121,8 @@ class TripEmailExporterTest {
         assertEquals(BigDecimal("40.00"), lines.single().amount)
         assertEquals(
             listOf(
-                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22.jpg",
-                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22_2.jpg"
+                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22.pdf",
+                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22_2.pdf"
             ),
             lines.single().attachmentNames
         )
@@ -157,7 +173,9 @@ class TripEmailExporterTest {
         id: String,
         date: LocalDate,
         type: ExpenseType,
-        amount: BigDecimal = BigDecimal("12.50")
+        amount: BigDecimal = BigDecimal("12.50"),
+        mimeType: String = "image/jpeg",
+        storedFileName: String = "$id.jpg"
     ) = Receipt(
         id = id,
         tripId = "trip",
@@ -165,7 +183,7 @@ class TripEmailExporterTest {
         amount = amount,
         category = type.category,
         expenseType = type,
-        storedFileName = "$id.jpg",
-        mimeType = "image/jpeg"
+        storedFileName = storedFileName,
+        mimeType = mimeType
     )
 }

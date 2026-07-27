@@ -3,7 +3,14 @@ package fr.notedefrais.app.export
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.RectF
+import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
@@ -20,6 +27,11 @@ import java.time.format.FormatStyle
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+
+private const val PDF_SHORT_SIDE = 595
+private const val PDF_LONG_SIDE = 842
+private const val PDF_MARGIN = 24
+private const val MAX_IMAGE_DIMENSION = 2400
 
 object TripEmailExporter {
     fun send(
@@ -45,7 +57,11 @@ object TripEmailExporter {
                 "Le justificatif ${receipt.expenseType.displayLabel} du ${receipt.date} est introuvable."
             }
             File(exportDirectory, attachmentNames.getValue(receipt.id)).also { destination ->
-                source.copyTo(destination, overwrite = true)
+                if (receipt.isImageDocument()) {
+                    convertImageToPdf(source, destination)
+                } else {
+                    source.copyTo(destination, overwrite = true)
+                }
             }
         }
         val csv = File(
@@ -129,13 +145,110 @@ internal fun buildAttachmentNames(receipts: List<Receipt>): Map<String, String> 
             val occurrence = occurrences.getOrDefault(baseName, 0) + 1
             occurrences[baseName] = occurrence
             val suffix = if (occurrence == 1) "" else "_$occurrence"
-            val extension = receipt.storedFileName
-                .substringAfterLast('.', "bin")
-                .lowercase(Locale.ROOT)
-                .replace(Regex("[^a-z0-9]"), "")
-                .ifBlank { "bin" }
+            val extension = receipt.exportExtension()
             put(receipt.id, "$baseName$suffix.$extension")
         }
+    }
+}
+
+private fun Receipt.isImageDocument(): Boolean =
+    mimeType.lowercase(Locale.ROOT).startsWith("image/")
+
+private fun Receipt.exportExtension(): String = when {
+    isImageDocument() -> "pdf"
+    mimeType.equals("application/pdf", ignoreCase = true) -> "pdf"
+    else -> storedFileName
+        .substringAfterLast('.', "bin")
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[^a-z0-9]"), "")
+        .ifBlank { "bin" }
+}
+
+internal fun convertImageToPdf(source: File, destination: File) {
+    require(source.isFile) { "L’image ${source.name} est introuvable." }
+    val bitmap = decodeExportBitmap(source)
+    val document = PdfDocument()
+    try {
+        val landscape = bitmap.width > bitmap.height
+        val pageWidth = if (landscape) PDF_LONG_SIDE else PDF_SHORT_SIDE
+        val pageHeight = if (landscape) PDF_SHORT_SIDE else PDF_LONG_SIDE
+        val page = document.startPage(
+            PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+        )
+        page.canvas.drawColor(Color.WHITE)
+        val availableWidth = pageWidth - (PDF_MARGIN * 2f)
+        val availableHeight = pageHeight - (PDF_MARGIN * 2f)
+        val scale = minOf(
+            availableWidth / bitmap.width.toFloat(),
+            availableHeight / bitmap.height.toFloat()
+        )
+        val renderedWidth = bitmap.width * scale
+        val renderedHeight = bitmap.height * scale
+        val left = (pageWidth - renderedWidth) / 2f
+        val top = (pageHeight - renderedHeight) / 2f
+        page.canvas.drawBitmap(
+            bitmap,
+            null,
+            RectF(left, top, left + renderedWidth, top + renderedHeight),
+            null
+        )
+        document.finishPage(page)
+        destination.outputStream().buffered().use(document::writeTo)
+    } finally {
+        document.close()
+        bitmap.recycle()
+    }
+}
+
+private fun decodeExportBitmap(source: File): Bitmap {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(source.absolutePath, bounds)
+    require(bounds.outWidth > 0 && bounds.outHeight > 0) {
+        "L’image ${source.name} ne peut pas être lue."
+    }
+    var sampleSize = 1
+    while (
+        bounds.outWidth / sampleSize > MAX_IMAGE_DIMENSION ||
+        bounds.outHeight / sampleSize > MAX_IMAGE_DIMENSION
+    ) {
+        sampleSize *= 2
+    }
+    val decoded = requireNotNull(
+        BitmapFactory.decodeFile(
+            source.absolutePath,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        )
+    ) {
+        "L’image ${source.name} ne peut pas être décodée."
+    }
+    val rotation = runCatching {
+        when (
+            ExifInterface(source).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        ) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+    }.getOrDefault(0f)
+    if (rotation == 0f) return decoded
+
+    return Bitmap.createBitmap(
+        decoded,
+        0,
+        0,
+        decoded.width,
+        decoded.height,
+        Matrix().apply { postRotate(rotation) },
+        true
+    ).also { rotated ->
+        if (rotated !== decoded) decoded.recycle()
     }
 }
 
