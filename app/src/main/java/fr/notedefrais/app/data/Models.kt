@@ -40,6 +40,11 @@ data class Trip(
     }
 }
 
+fun Trip.withMealZone(zone: MealZone): Trip = copy(
+    mealZone = zone,
+    dailyMealAllowance = zone.dailyAllowance
+)
+
 enum class ExpenseCategory(val label: String) {
     TRANSPORT("Transport"),
     MEAL("Repas"),

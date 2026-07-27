@@ -113,6 +113,21 @@ class ExpenseTypeTest {
     }
 
     @Test
+    fun changingTripZoneAlsoChangesItsDailyMealAllowance() {
+        val trip = Trip(
+            name = "Province",
+            startDate = java.time.LocalDate.of(2026, 7, 27),
+            endDate = java.time.LocalDate.of(2026, 7, 27),
+            mealZone = MealZone.PROVINCE
+        )
+
+        val relocated = trip.withMealZone(MealZone.PARIS_SOPHIA)
+
+        assertEquals(MealZone.PARIS_SOPHIA, relocated.mealZone)
+        assertEquals(BigDecimal("45.00"), relocated.dailyMealAllowance)
+    }
+
+    @Test
     fun combinedCalculationIsSuggestedWhenSeparateLimitWouldLoseMoney() {
         val beneficial = isCombinedMealCalculationBeneficial(
             entries = listOf(

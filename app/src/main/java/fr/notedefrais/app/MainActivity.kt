@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
@@ -234,6 +235,8 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
             onCreateTrip = vm::createTrip,
             onOpenSettings = { showSettings = true },
             onUpdateTripTracking = vm::updateTripTracking,
+            onUpdateTripMealZone = vm::updateTripMealZone,
+            onDeleteTrip = vm::deleteTrip,
             fileFor = vm::fileFor
         )
     } else {
@@ -285,11 +288,15 @@ private fun TripsScreen(
     onCreateTrip: (String, LocalDate, LocalDate, MealZone) -> Result<Unit>,
     onOpenSettings: () -> Unit,
     onUpdateTripTracking: (String, TripStatus, LocalDate?) -> Result<Unit>,
+    onUpdateTripMealZone: (String, MealZone) -> Result<Unit>,
+    onDeleteTrip: (String) -> Result<Unit>,
     fileFor: (Receipt) -> File
 ) {
     val context = LocalContext.current
     var showCreateDialog by remember { mutableStateOf(false) }
     var tripToTrack by remember { mutableStateOf<Trip?>(null) }
+    var tripToRelocate by remember { mutableStateOf<Trip?>(null) }
+    var tripToDelete by remember { mutableStateOf<Trip?>(null) }
 
     Scaffold(
         containerColor = FoBackground,
@@ -338,6 +345,8 @@ private fun TripsScreen(
                         receipts = tripReceipts,
                         onClick = { onTripClick(trip) },
                         onTracking = { tripToTrack = trip },
+                        onLocation = { tripToRelocate = trip },
+                        onDelete = { tripToDelete = trip },
                         onExport = {
                             exportTripByEmail(context, trip, tripReceipts, fileFor)
                         }
@@ -373,6 +382,73 @@ private fun TripsScreen(
                             Toast.LENGTH_LONG
                         ).show()
                     }
+            }
+        )
+    }
+
+    tripToRelocate?.let { trip ->
+        TripMealZoneDialog(
+            trip = trip,
+            onDismiss = { tripToRelocate = null },
+            onConfirm = { mealZone ->
+                onUpdateTripMealZone(trip.id, mealZone)
+                    .onSuccess {
+                        tripToRelocate = null
+                        Toast.makeText(
+                            context,
+                            "Zone et plafonds mis à jour",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    .onFailure {
+                        Toast.makeText(
+                            context,
+                            it.message ?: "Modification impossible",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+        )
+    }
+
+    tripToDelete?.let { trip ->
+        AlertDialog(
+            onDismissRequest = { tripToDelete = null },
+            title = { Text("Supprimer cette note de frais ?") },
+            text = {
+                Text(
+                    "Le déplacement « ${trip.name} » et tous ses justificatifs seront " +
+                        "supprimés définitivement de l’application."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteTrip(trip.id)
+                            .onSuccess {
+                                tripToDelete = null
+                                Toast.makeText(
+                                    context,
+                                    "Note de frais supprimée",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            .onFailure {
+                                Toast.makeText(
+                                    context,
+                                    it.message ?: "Suppression impossible",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                    }
+                ) {
+                    Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { tripToDelete = null }) {
+                    Text("Annuler")
+                }
             }
         )
     }
@@ -539,6 +615,8 @@ private fun TripCard(
     receipts: List<Receipt>,
     onClick: () -> Unit,
     onTracking: () -> Unit,
+    onLocation: () -> Unit,
+    onDelete: () -> Unit,
     onExport: () -> Unit
 ) {
     val total = receipts.fold(BigDecimal.ZERO) { sum, receipt -> sum + receipt.amount }
@@ -621,6 +699,28 @@ private fun TripCard(
                     Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("E-mail")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(onClick = onLocation, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        Icons.Default.Place,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Changer la zone")
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.DeleteOutline,
+                        contentDescription = "Supprimer la note de frais",
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         }
@@ -1106,6 +1206,51 @@ private fun MealZoneDropdown(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TripMealZoneDialog(
+    trip: Trip,
+    onDismiss: () -> Unit,
+    onConfirm: (MealZone) -> Unit
+) {
+    var mealZone by remember(trip.id) { mutableStateOf(trip.mealZone) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Localisation du déplacement") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    trip.name,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FoNavy
+                )
+                MealZoneDropdown(
+                    selected = mealZone,
+                    onSelected = { mealZone = it }
+                )
+                Text(
+                    "Le plafond repas passera à ${mealZone.dailyAllowance.euros()} par jour. " +
+                        "Les types de dîner, les montants remboursables et les annotations " +
+                        "seront recalculés.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(mealZone) }) {
+                Text("Enregistrer")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -103,6 +103,18 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
+    fun updateTripMealZone(tripId: String, mealZone: MealZone): Result<Unit> = runCatching {
+        _state.value = repository.updateTripMealZone(
+            tripId = tripId,
+            mealZone = mealZone,
+            state = _state.value
+        )
+    }
+
+    fun deleteTrip(tripId: String): Result<Unit> = runCatching {
+        _state.value = repository.deleteTrip(tripId, _state.value)
+    }
+
     fun receiptsFor(tripId: String): List<Receipt> =
         _state.value.receipts.filter { it.tripId == tripId }
 

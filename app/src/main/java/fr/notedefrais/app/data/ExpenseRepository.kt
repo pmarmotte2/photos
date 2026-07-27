@@ -78,6 +78,55 @@ class ExpenseRepository(private val context: Context) {
         return updated
     }
 
+    fun updateTripMealZone(
+        tripId: String,
+        mealZone: MealZone,
+        state: ExpenseState
+    ): ExpenseState {
+        val trip = state.trips.firstOrNull { it.id == tripId }
+            ?: error("Le déplacement est introuvable.")
+        val updatedTrip = trip.withMealZone(mealZone)
+        var updated = state.copy(
+            trips = state.trips
+                .map { if (it.id == tripId) updatedTrip else it }
+                .sortedByDescending { it.startDate }
+        )
+        state.receipts
+            .asSequence()
+            .filter { it.tripId == tripId }
+            .map { it.date }
+            .distinct()
+            .sorted()
+            .forEach { date ->
+                updated = prepareMealDay(
+                    state = updated,
+                    trip = updatedTrip,
+                    date = date,
+                    changedReceiptId = null,
+                    useCombinedMealCalculation = false
+                )
+                updated = recalculateTripDay(updated, updatedTrip, date)
+            }
+        persist(updated)
+        return updated
+    }
+
+    fun deleteTrip(tripId: String, state: ExpenseState): ExpenseState {
+        val trip = state.trips.firstOrNull { it.id == tripId }
+            ?: error("Le déplacement est introuvable.")
+        val tripReceipts = state.receipts.filter { it.tripId == trip.id }
+        val updated = state.copy(
+            trips = state.trips.filterNot { it.id == trip.id },
+            receipts = state.receipts.filterNot { it.tripId == trip.id }
+        )
+        persist(updated)
+        tripReceipts.forEach { receipt ->
+            fileFor(receipt).delete()
+            File(originalsDirectory, receipt.storedFileName).delete()
+        }
+        return updated
+    }
+
     fun saveExpenseLimits(
         limits: Map<ExpenseType, BigDecimal>,
         state: ExpenseState
