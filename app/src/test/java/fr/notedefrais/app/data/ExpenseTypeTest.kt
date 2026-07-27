@@ -213,6 +213,58 @@ class ExpenseTypeTest {
     }
 
     @Test
+    fun annotationExplainsEmployerContributionCalculation() {
+        val lines = ReimbursementCalculation(
+            declaredAmount = BigDecimal("20.00"),
+            reimbursableAmount = BigDecimal("14.00"),
+            employerContributionDeducted = BigDecimal("6.00"),
+            quota = BigDecimal("20.00")
+        ).annotationDetailLines()
+
+        assertEquals(
+            listOf("Participation employeur : 20,00 € - 6,00 € = 14,00 €"),
+            lines
+        )
+    }
+
+    @Test
+    fun annotationExplainsReachedQuotaAndRetainedAmount() {
+        val lines = ReimbursementCalculation(
+            declaredAmount = BigDecimal("30.00"),
+            reimbursableAmount = BigDecimal("8.00"),
+            quota = BigDecimal("20.00"),
+            alreadyReimbursedAgainstQuota = BigDecimal("12.00")
+        ).annotationDetailLines()
+
+        assertEquals(
+            listOf(
+                "Quota de 20,00 € atteint",
+                "Déjà remboursé sur ce quota : 12,00 €",
+                "Remboursement à hauteur de 8,00 €"
+            ),
+            lines
+        )
+    }
+
+    @Test
+    fun annotationCanExplainContributionAndQuotaTogether() {
+        val lines = ReimbursementCalculation(
+            declaredAmount = BigDecimal("30.00"),
+            reimbursableAmount = BigDecimal("10.00"),
+            employerContributionDeducted = BigDecimal("6.00"),
+            quota = BigDecimal("20.00"),
+            alreadyReimbursedAgainstQuota = BigDecimal("10.00")
+        ).annotationDetailLines()
+
+        assertEquals(4, lines.size)
+        assertEquals(
+            "Participation employeur : 30,00 € - 6,00 € = 24,00 €",
+            lines.first()
+        )
+        assertEquals("Remboursement à hauteur de 10,00 €", lines.last())
+    }
+
+    @Test
     fun combinedSuggestionAccountsForEmployerContribution() {
         val beneficial = isCombinedMealCalculationBeneficial(
             entries = listOf(

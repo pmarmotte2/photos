@@ -363,7 +363,7 @@ class ExpenseRepository(private val context: Context) {
             state.receipts
                 .filter { it.tripId == trip.id && it.date == date }
                 .forEach { receipt ->
-                    val reimbursableAmount = calculateReceiptReimbursement(
+                    val calculation = calculateReceiptReimbursement(
                         amount = receipt.amount,
                         expenseType = receipt.expenseType,
                         trip = trip,
@@ -374,6 +374,7 @@ class ExpenseRepository(private val context: Context) {
                             state.mealVoucherEmployerContribution,
                         combinedMealCalculation = receipt.combinedMealCalculation
                     )
+                    val reimbursableAmount = calculation.reimbursableAmount
                     val recalculated = receipt.copy(reimbursableAmount = reimbursableAmount)
                     val original = File(originalsDirectory, receipt.storedFileName)
                     require(original.exists()) {
@@ -388,7 +389,7 @@ class ExpenseRepository(private val context: Context) {
                             source = original,
                             destination = replacement,
                             mimeType = receipt.mimeType,
-                            reimbursableAmount = reimbursableAmount
+                            calculation = calculation
                         )
                     } else {
                         original.copyTo(replacement, overwrite = true)
@@ -422,7 +423,7 @@ class ExpenseRepository(private val context: Context) {
         customLimits: Map<ExpenseType, BigDecimal>,
         mealVoucherEmployerContribution: BigDecimal,
         combinedMealCalculation: Boolean = false
-    ): BigDecimal {
+    ): ReimbursementCalculation {
         val contributionAlreadyApplied = previousReceipts.any {
             it.tripId == trip.id &&
                 it.date == date &&
@@ -434,6 +435,13 @@ class ExpenseRepository(private val context: Context) {
             employerContribution = mealVoucherEmployerContribution,
             contributionAlreadyApplied = contributionAlreadyApplied
         )
+        val contributionDeducted = if (
+            expenseType.receivesMealVoucherDeduction && !contributionAlreadyApplied
+        ) {
+            amount - reimbursableBase
+        } else {
+            BigDecimal.ZERO
+        }
         if (combinedMealCalculation && (expenseType.isLunch || expenseType.isDinner)) {
             val combinedType = trip.mealZone.lunchDinnerType()
             val combinedLimit = customLimits[combinedType]
@@ -449,10 +457,17 @@ class ExpenseRepository(private val context: Context) {
                 .fold(BigDecimal.ZERO) { total, previous ->
                     total + previous.reimbursableAmount
                 }
-            return calculateReimbursableAmount(
+            val reimbursableAmount = calculateReimbursableAmount(
                 receiptAmount = reimbursableBase,
                 dailyAllowance = combinedLimit,
                 alreadySpent = alreadySpentCombined
+            )
+            return ReimbursementCalculation(
+                declaredAmount = amount,
+                reimbursableAmount = reimbursableAmount,
+                employerContributionDeducted = contributionDeducted,
+                quota = combinedLimit,
+                alreadyReimbursedAgainstQuota = alreadySpentCombined
             )
         }
         val alreadySpentForType = previousReceipts
@@ -473,13 +488,33 @@ class ExpenseRepository(private val context: Context) {
             .fold(BigDecimal.ZERO) { total, previous ->
                 total + previous.reimbursableAmount
             }
-        return calculateReceiptReimbursableAmount(
+        val configuredTypeLimit = customLimits[expenseType] ?: expenseType.defaultLimit
+        val quota = when {
+            configuredTypeLimit != null -> configuredTypeLimit
+            expenseType.category == ExpenseCategory.MEAL -> trip.dailyMealAllowance
+            else -> null
+        }
+        val alreadyReimbursedAgainstQuota = when {
+            configuredTypeLimit != null && expenseType.category == ExpenseCategory.MEAL ->
+                alreadySpentForType
+            configuredTypeLimit == null && expenseType.category == ExpenseCategory.MEAL ->
+                alreadySpentForMeals
+            else -> BigDecimal.ZERO
+        }
+        val reimbursableAmount = calculateReceiptReimbursableAmount(
             receiptAmount = reimbursableBase,
             expenseType = expenseType,
             dailyMealAllowance = trip.dailyMealAllowance,
             alreadySpentForType = alreadySpentForType,
             alreadySpentForMeals = alreadySpentForMeals,
             customTypeLimit = customLimits[expenseType]
+        )
+        return ReimbursementCalculation(
+            declaredAmount = amount,
+            reimbursableAmount = reimbursableAmount,
+            employerContributionDeducted = contributionDeducted,
+            quota = quota,
+            alreadyReimbursedAgainstQuota = alreadyReimbursedAgainstQuota
         )
     }
 
@@ -495,7 +530,7 @@ class ExpenseRepository(private val context: Context) {
                         .filter { it.tripId == trip.id }
                         .sortedBy { it.date }
                         .forEach { receipt ->
-                            val reimbursableAmount = calculateReceiptReimbursement(
+                            val calculation = calculateReceiptReimbursement(
                                 amount = receipt.amount,
                                 expenseType = receipt.expenseType,
                                 trip = trip,
@@ -506,6 +541,7 @@ class ExpenseRepository(private val context: Context) {
                                     state.mealVoucherEmployerContribution,
                                 combinedMealCalculation = receipt.combinedMealCalculation
                             )
+                            val reimbursableAmount = calculation.reimbursableAmount
                             val recalculated = receipt.copy(
                                 reimbursableAmount = reimbursableAmount
                             )
@@ -522,7 +558,7 @@ class ExpenseRepository(private val context: Context) {
                                     source = original,
                                     destination = replacement,
                                     mimeType = receipt.mimeType,
-                                    reimbursableAmount = reimbursableAmount
+                                    calculation = calculation
                                 )
                             } else {
                                 original.copyTo(replacement, overwrite = true)
@@ -718,7 +754,7 @@ class ExpenseRepository(private val context: Context) {
         private const val KEY_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION =
             "meal_voucher_employer_contribution"
         private const val KEY_LIMIT_POLICY_VERSION = "limit_policy_version"
-        private const val LIMIT_POLICY_VERSION = 2
+        private const val LIMIT_POLICY_VERSION = 3
         private val FILE_DATE = DateTimeFormatter.ISO_LOCAL_DATE
     }
 }

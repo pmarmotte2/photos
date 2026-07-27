@@ -73,7 +73,7 @@ Un fichier vide désactive la popup.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.17.0](releases/Fo-Notes-1.17.0.apk).
+[Fo Notes 1.18.0](releases/Fo-Notes-1.18.0.apk).
 
 ## Extension Chrome de diagnostic
 
@@ -82,6 +82,16 @@ une extension Manifest V3 qui relève les champs et sélecteurs techniques du
 formulaire ATOS sans collecter les valeurs saisies. Une archive prête à
 décompresser est disponible dans
 [`releases/Fo-Notes-Diagnostic-0.1.0.zip`](releases/Fo-Notes-Diagnostic-0.1.0.zip).
+
+## Extension Chrome de remplissage ATOS
+
+Le dossier [`chrome-extension-filler`](chrome-extension-filler) contient
+l’assistant de saisie ATOS. Il analyse le mail ou le CSV du ZIP Fo Notes,
+prévisualise les lignes, renseigne les champs et ajoute les justificatifs sans
+déclencher l’étape finale **Review/Send**.
+
+L’archive installable est disponible dans
+[`releases/Fo-Notes-ATOS-0.1.0.zip`](releases/Fo-Notes-ATOS-0.1.0.zip).
 
 ## Limites connues du MVP
 

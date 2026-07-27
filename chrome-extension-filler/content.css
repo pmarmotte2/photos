@@ -1,0 +1,256 @@
+#fo-notes-launcher {
+  position: fixed;
+  z-index: 2147483645;
+  right: 22px;
+  bottom: 22px;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 15px;
+  color: #fff;
+  background: #e30613;
+  box-shadow: 0 8px 24px rgba(28, 42, 68, .3);
+  font: 800 16px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+
+#fo-notes-filler {
+  position: fixed;
+  z-index: 2147483646;
+  inset: 0;
+  display: none;
+  align-items: stretch;
+  justify-content: flex-end;
+  color: #211a1b;
+  background: rgba(28, 42, 68, .38);
+  font: 14px/1.4 Arial, sans-serif;
+}
+
+#fo-notes-filler.fo-open {
+  display: flex;
+}
+
+#fo-notes-filler * {
+  box-sizing: border-box;
+}
+
+#fo-notes-filler .fo-panel {
+  display: flex;
+  width: min(680px, 96vw);
+  height: 100%;
+  flex-direction: column;
+  background: #fff8f7;
+  box-shadow: -12px 0 35px rgba(28, 42, 68, .28);
+}
+
+#fo-notes-filler .fo-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+  color: #1c2a44;
+  background: white;
+  border-bottom: 1px solid #eadde0;
+}
+
+#fo-notes-filler .fo-logo {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 10px;
+  color: white;
+  background: #e30613;
+  font-weight: 800;
+}
+
+#fo-notes-filler .fo-title {
+  flex: 1;
+}
+
+#fo-notes-filler .fo-title strong,
+#fo-notes-filler .fo-title span {
+  display: block;
+}
+
+#fo-notes-filler .fo-title strong {
+  font-size: 17px;
+}
+
+#fo-notes-filler .fo-title span {
+  color: #6c5b5e;
+  font-size: 12px;
+}
+
+#fo-notes-filler .fo-icon-button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  color: #1c2a44;
+  background: #f5edef;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+#fo-notes-filler .fo-body {
+  overflow: auto;
+  flex: 1;
+  padding: 18px;
+}
+
+#fo-notes-filler label {
+  display: block;
+  margin: 0 0 7px;
+  color: #1c2a44;
+  font-weight: 700;
+}
+
+#fo-notes-filler textarea,
+#fo-notes-filler input[type="file"] {
+  width: 100%;
+  border: 1px solid #cdbdc1;
+  border-radius: 9px;
+  color: #211a1b;
+  background: white;
+}
+
+#fo-notes-filler textarea {
+  min-height: 180px;
+  padding: 11px;
+  resize: vertical;
+  font: 13px/1.45 Consolas, monospace;
+}
+
+#fo-notes-filler input[type="file"] {
+  padding: 10px;
+}
+
+#fo-notes-filler .fo-field {
+  margin-bottom: 15px;
+}
+
+#fo-notes-filler .fo-help {
+  margin: 6px 0 0;
+  color: #6c5b5e;
+  font-size: 12px;
+}
+
+#fo-notes-filler .fo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 14px 0;
+}
+
+#fo-notes-filler button.fo-primary,
+#fo-notes-filler button.fo-secondary,
+#fo-notes-filler button.fo-danger {
+  padding: 10px 14px;
+  border-radius: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#fo-notes-filler button.fo-primary {
+  border: 1px solid #e30613;
+  color: white;
+  background: #e30613;
+}
+
+#fo-notes-filler button.fo-secondary {
+  border: 1px solid #1c2a44;
+  color: #1c2a44;
+  background: white;
+}
+
+#fo-notes-filler button.fo-danger {
+  border: 1px solid #a8000a;
+  color: #a8000a;
+  background: white;
+}
+
+#fo-notes-filler button:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+#fo-notes-filler .fo-summary {
+  display: none;
+  margin-top: 18px;
+}
+
+#fo-notes-filler .fo-summary.fo-visible {
+  display: block;
+}
+
+#fo-notes-filler .fo-meta {
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: #1c2a44;
+  background: #fdebed;
+}
+
+#fo-notes-filler .fo-table-wrap {
+  overflow: auto;
+  max-height: 280px;
+  margin: 12px 0;
+  border: 1px solid #eadde0;
+  border-radius: 9px;
+  background: white;
+}
+
+#fo-notes-filler table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#fo-notes-filler th,
+#fo-notes-filler td {
+  padding: 8px;
+  border-bottom: 1px solid #eee5e7;
+  text-align: left;
+  vertical-align: top;
+}
+
+#fo-notes-filler th {
+  position: sticky;
+  top: 0;
+  color: #1c2a44;
+  background: #f5edef;
+}
+
+#fo-notes-filler .fo-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-weight: 400;
+}
+
+#fo-notes-filler .fo-confirm input {
+  margin-top: 3px;
+}
+
+#fo-notes-filler .fo-log {
+  min-height: 54px;
+  max-height: 150px;
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 10px;
+  border-radius: 9px;
+  color: #1c2a44;
+  background: #f1f3f6;
+  white-space: pre-wrap;
+  font: 12px/1.45 Consolas, monospace;
+}
+
+#fo-notes-filler .fo-log.fo-error {
+  color: #a8000a;
+  background: #fdebed;
+}
+
+#fo-notes-filler .fo-log.fo-success {
+  color: #145a32;
+  background: #e9f7ef;
+}

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Fo Notes - Remplissage ATOS",
+  "description": "Prépare les lignes d'une note de frais ATOS depuis l'export Fo Notes.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Ouvrir l'assistant Fo Notes",
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "activeTab"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://nextgen.myatos.net/*"
+      ],
+      "js": [
+        "parser.js",
+        "zip.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://nextgen.myatos.net/*"
+  ]
+}

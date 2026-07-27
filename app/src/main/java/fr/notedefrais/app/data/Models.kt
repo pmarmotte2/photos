@@ -1,6 +1,7 @@
 package fr.notedefrais.app.data
 
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.util.UUID
 
@@ -177,6 +178,53 @@ data class Receipt(
 
     val isCapped: Boolean get() = reimbursableAmount < amount
 }
+
+data class ReimbursementCalculation(
+    val declaredAmount: BigDecimal,
+    val reimbursableAmount: BigDecimal,
+    val employerContributionDeducted: BigDecimal = BigDecimal.ZERO,
+    val quota: BigDecimal? = null,
+    val alreadyReimbursedAgainstQuota: BigDecimal = BigDecimal.ZERO
+) {
+    init {
+        require(declaredAmount >= BigDecimal.ZERO)
+        require(reimbursableAmount >= BigDecimal.ZERO)
+        require(reimbursableAmount <= declaredAmount)
+        require(employerContributionDeducted >= BigDecimal.ZERO)
+        require(quota == null || quota >= BigDecimal.ZERO)
+        require(alreadyReimbursedAgainstQuota >= BigDecimal.ZERO)
+    }
+
+    val amountAfterEmployerContribution: BigDecimal
+        get() = (declaredAmount - employerContributionDeducted)
+            .coerceAtLeast(BigDecimal.ZERO)
+
+    val isQuotaLimited: Boolean
+        get() = quota != null && reimbursableAmount < amountAfterEmployerContribution
+}
+
+internal fun ReimbursementCalculation.annotationDetailLines(): List<String> = buildList {
+    if (employerContributionDeducted.signum() > 0) {
+        add(
+            "Participation employeur : ${declaredAmount.annotationAmount()} € - " +
+                "${employerContributionDeducted.annotationAmount()} € = " +
+                "${amountAfterEmployerContribution.annotationAmount()} €"
+        )
+    }
+    if (isQuotaLimited) {
+        add("Quota de ${requireNotNull(quota).annotationAmount()} € atteint")
+        if (alreadyReimbursedAgainstQuota.signum() > 0) {
+            add(
+                "Déjà remboursé sur ce quota : " +
+                    "${alreadyReimbursedAgainstQuota.annotationAmount()} €"
+            )
+        }
+        add("Remboursement à hauteur de ${reimbursableAmount.annotationAmount()} €")
+    }
+}
+
+internal fun BigDecimal.annotationAmount(): String =
+    setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',')
 
 val ExpenseType.isLunch: Boolean
     get() = this == ExpenseType.LUNCH
