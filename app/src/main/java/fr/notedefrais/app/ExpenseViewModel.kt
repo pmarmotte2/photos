@@ -86,8 +86,15 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    fun saveExpenseLimits(limits: Map<ExpenseType, BigDecimal>): Result<Unit> = runCatching {
-        _state.value = repository.saveExpenseLimits(limits, _state.value)
+    fun saveExpenseLimits(
+        limits: Map<ExpenseType, BigDecimal>,
+        mealVoucherEmployerContribution: BigDecimal
+    ): Result<Unit> = runCatching {
+        _state.value = repository.saveExpenseLimits(
+            limits = limits,
+            mealVoucherEmployerContribution = mealVoucherEmployerContribution,
+            state = _state.value
+        )
     }
 
     fun updateTripTracking(

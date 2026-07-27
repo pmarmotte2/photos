@@ -167,4 +167,63 @@ class ExpenseTypeTest {
 
         assertEquals(false, beneficial)
     }
+
+    @Test
+    fun defaultEmployerContributionIsSixEuros() {
+        assertEquals(
+            BigDecimal("6.00"),
+            DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION
+        )
+    }
+
+    @Test
+    fun employerContributionIsDeductedFromFirstLunch() {
+        val reimbursableBase = applyMealVoucherEmployerContribution(
+            receiptAmount = BigDecimal("18.00"),
+            expenseType = ExpenseType.LUNCH,
+            employerContribution = BigDecimal("6.00"),
+            contributionAlreadyApplied = false
+        )
+
+        assertEquals(BigDecimal("12.00"), reimbursableBase)
+    }
+
+    @Test
+    fun employerContributionIsOnlyDeductedOncePerDay() {
+        val secondCumulatedReceipt = applyMealVoucherEmployerContribution(
+            receiptAmount = BigDecimal("20.00"),
+            expenseType = ExpenseType.LUNCH_DINNER_PARIS,
+            employerContribution = BigDecimal("6.00"),
+            contributionAlreadyApplied = true
+        )
+
+        assertEquals(BigDecimal("20.00"), secondCumulatedReceipt)
+    }
+
+    @Test
+    fun employerContributionIsNotDeductedFromDinner() {
+        val dinner = applyMealVoucherEmployerContribution(
+            receiptAmount = BigDecimal("20.00"),
+            expenseType = ExpenseType.DINNER_PARIS,
+            employerContribution = BigDecimal("6.00"),
+            contributionAlreadyApplied = false
+        )
+
+        assertEquals(BigDecimal("20.00"), dinner)
+    }
+
+    @Test
+    fun combinedSuggestionAccountsForEmployerContribution() {
+        val beneficial = isCombinedMealCalculationBeneficial(
+            entries = listOf(
+                MealEntry(BigDecimal("30.00"), ExpenseType.LUNCH),
+                MealEntry(BigDecimal("10.00"), ExpenseType.DINNER_PARIS)
+            ),
+            zone = MealZone.PARIS_SOPHIA,
+            customLimits = emptyMap(),
+            employerContribution = BigDecimal("6.00")
+        )
+
+        assertTrue(beneficial)
+    }
 }

@@ -4,6 +4,8 @@ import java.math.BigDecimal
 import java.time.LocalDate
 import java.util.UUID
 
+val DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION: BigDecimal = BigDecimal("6.00")
+
 enum class TripStatus(val label: String) {
     DRAFT("En cours de saisie"),
     SENT("Envoyée"),
@@ -188,6 +190,9 @@ val ExpenseType.isLunchDinner: Boolean
 val ExpenseType.isStructuredMeal: Boolean
     get() = isLunch || isDinner || isLunchDinner
 
+val ExpenseType.receivesMealVoucherDeduction: Boolean
+    get() = isLunch || isLunchDinner
+
 fun MealZone.dinnerType(): ExpenseType = when (this) {
     MealZone.PARIS_SOPHIA -> ExpenseType.DINNER_PARIS
     MealZone.PROVINCE -> ExpenseType.DINNER_COUNTRY
@@ -218,13 +223,17 @@ data class MealEntry(
 fun isCombinedMealCalculationBeneficial(
     entries: List<MealEntry>,
     zone: MealZone,
-    customLimits: Map<ExpenseType, BigDecimal>
+    customLimits: Map<ExpenseType, BigDecimal>,
+    employerContribution: BigDecimal = BigDecimal.ZERO
 ): Boolean {
     val lunches = entries.filter { it.expenseType.isLunch }
     val dinners = entries.filter { it.expenseType.isDinner }
     if (lunches.isEmpty() || dinners.isEmpty()) return false
 
-    val lunchTotal = lunches.fold(BigDecimal.ZERO) { total, entry -> total + entry.amount }
+    val lunchTotalBeforeContribution =
+        lunches.fold(BigDecimal.ZERO) { total, entry -> total + entry.amount }
+    val lunchTotal = (lunchTotalBeforeContribution - employerContribution)
+        .coerceAtLeast(BigDecimal.ZERO)
     val dinnerTotal = dinners.fold(BigDecimal.ZERO) { total, entry -> total + entry.amount }
     val lunchLimit = customLimits[ExpenseType.LUNCH] ?: ExpenseType.LUNCH.defaultLimit
         ?: BigDecimal.ZERO
@@ -243,7 +252,9 @@ fun isCombinedMealCalculationBeneficial(
 data class ExpenseState(
     val trips: List<Trip> = emptyList(),
     val receipts: List<Receipt> = emptyList(),
-    val customExpenseLimits: Map<ExpenseType, BigDecimal> = emptyMap()
+    val customExpenseLimits: Map<ExpenseType, BigDecimal> = emptyMap(),
+    val mealVoucherEmployerContribution: BigDecimal =
+        DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION
 )
 
 data class DailySummary(
@@ -279,6 +290,19 @@ fun applyExpenseLimit(
     ?.coerceAtLeast(BigDecimal.ZERO)
     ?.let(receiptAmount::coerceAtMost)
     ?: receiptAmount
+
+fun applyMealVoucherEmployerContribution(
+    receiptAmount: BigDecimal,
+    expenseType: ExpenseType,
+    employerContribution: BigDecimal,
+    contributionAlreadyApplied: Boolean
+): BigDecimal =
+    if (expenseType.receivesMealVoucherDeduction && !contributionAlreadyApplied) {
+        (receiptAmount - employerContribution.coerceAtLeast(BigDecimal.ZERO))
+            .coerceAtLeast(BigDecimal.ZERO)
+    } else {
+        receiptAmount
+    }
 
 fun calculateReceiptReimbursableAmount(
     receiptAmount: BigDecimal,

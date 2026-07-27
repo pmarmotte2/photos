@@ -103,6 +103,7 @@ import com.canhub.cropper.CropException
 import com.canhub.cropper.CropImageOptions
 import com.canhub.cropper.CropImageView
 import fr.notedefrais.app.data.DailySummary
+import fr.notedefrais.app.data.DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION
 import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.MealEntry
@@ -118,6 +119,7 @@ import fr.notedefrais.app.data.isLunch
 import fr.notedefrais.app.data.isLunchDinner
 import fr.notedefrais.app.data.isStructuredMeal
 import fr.notedefrais.app.data.lunchDinnerType
+import fr.notedefrais.app.data.receivesMealVoucherDeduction
 import fr.notedefrais.app.export.TripEmailExporter
 import fr.notedefrais.app.ocr.OcrAmountCandidate
 import fr.notedefrais.app.ocr.OcrDateCandidate
@@ -224,6 +226,7 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
     if (showSettings) {
         ExpenseSettingsScreen(
             limits = state.customExpenseLimits,
+            mealVoucherEmployerContribution = state.mealVoucherEmployerContribution,
             onBack = { showSettings = false },
             onSave = vm::saveExpenseLimits
         )
@@ -245,6 +248,7 @@ private fun ExpenseApp(vm: ExpenseViewModel = viewModel()) {
             receipts = state.receipts.filter { it.tripId == selectedTrip.id },
             summaries = vm.dailySummaries(selectedTrip),
             expenseLimits = state.customExpenseLimits,
+            mealVoucherEmployerContribution = state.mealVoucherEmployerContribution,
             onBack = { selectedTripId = null },
             onAddReceipt = vm::addReceipt,
             onUpdateReceipt = vm::updateReceipt,
@@ -458,8 +462,9 @@ private fun TripsScreen(
 @Composable
 private fun ExpenseSettingsScreen(
     limits: Map<ExpenseType, BigDecimal>,
+    mealVoucherEmployerContribution: BigDecimal,
     onBack: () -> Unit,
-    onSave: (Map<ExpenseType, BigDecimal>) -> Result<Unit>
+    onSave: (Map<ExpenseType, BigDecimal>, BigDecimal) -> Result<Unit>
 ) {
     val context = LocalContext.current
     var category by remember { mutableStateOf(ExpenseCategory.TRANSPORT) }
@@ -467,6 +472,9 @@ private fun ExpenseSettingsScreen(
         mutableStateOf(
             limits.mapValues { (_, amount) -> amount.toFrenchAmount() }
         )
+    }
+    var employerContribution by remember(mealVoucherEmployerContribution) {
+        mutableStateOf(mealVoucherEmployerContribution.toFrenchAmount())
     }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -483,8 +491,20 @@ private fun ExpenseSettingsScreen(
                 }
             }
         }
+        val parsedEmployerContribution = if (employerContribution.isBlank()) {
+            DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION
+        } else {
+            employerContribution.toMoneyOrNull()
+        }
+        if (
+            parsedEmployerContribution == null ||
+            parsedEmployerContribution.signum() < 0
+        ) {
+            error = "La participation employeur est invalide."
+            return
+        }
         error = null
-        onSave(parsed)
+        onSave(parsed, parsedEmployerContribution)
             .onSuccess {
                 Toast.makeText(context, "Paramétrage enregistré", Toast.LENGTH_SHORT).show()
                 onBack()
@@ -525,6 +545,39 @@ private fun ExpenseSettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp
                 )
+            }
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            "Ticket restaurant",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = employerContribution,
+                            onValueChange = {
+                                employerContribution = it
+                                error = null
+                            },
+                            label = { Text("Participation employeur (€)") },
+                            supportingText = {
+                                Text(
+                                    "Déduite du premier lunch ou du premier " +
+                                        "lunch + dinner de chaque journée. Par défaut : 6,00 €."
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
             item {
                 ExpenseCategoryDropdown(
@@ -735,6 +788,7 @@ private fun TripScreen(
     receipts: List<Receipt>,
     summaries: List<DailySummary>,
     expenseLimits: Map<ExpenseType, BigDecimal>,
+    mealVoucherEmployerContribution: BigDecimal,
     onBack: () -> Unit,
     onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String, Boolean) -> Result<Unit>,
     onUpdateReceipt: (Receipt, Trip, LocalDate, BigDecimal, ExpenseType, Boolean) -> Result<Unit>,
@@ -892,6 +946,7 @@ private fun TripScreen(
             source = source,
             receipts = receipts,
             expenseLimits = expenseLimits,
+            mealVoucherEmployerContribution = mealVoucherEmployerContribution,
             onDismiss = { pendingSource = null },
             onConfirm = { date, amount, expenseType, useCombinedCalculation ->
                 onAddReceipt(
@@ -920,6 +975,7 @@ private fun TripScreen(
             receipt = receipt,
             receipts = receipts,
             expenseLimits = expenseLimits,
+            mealVoucherEmployerContribution = mealVoucherEmployerContribution,
             onDismiss = { receiptToEdit = null },
             onConfirm = { date, amount, expenseType, useCombinedCalculation ->
                 onUpdateReceipt(
@@ -1405,6 +1461,7 @@ private fun AddReceiptDialog(
     source: PendingSource,
     receipts: List<Receipt>,
     expenseLimits: Map<ExpenseType, BigDecimal>,
+    mealVoucherEmployerContribution: BigDecimal,
     onDismiss: () -> Unit,
     onConfirm: (LocalDate, BigDecimal, ExpenseType, Boolean) -> Unit
 ) {
@@ -1533,6 +1590,23 @@ private fun AddReceiptDialog(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                val employerContributionAlreadyApplied = receipts.any {
+                    it.tripId == trip.id &&
+                        it.date == date &&
+                        it.expenseType.receivesMealVoucherDeduction
+                }
+                if (
+                    expenseType.receivesMealVoucherDeduction &&
+                    !employerContributionAlreadyApplied
+                ) {
+                    Text(
+                        "Participation employeur déduite sur ce justificatif : " +
+                            "-${mealVoucherEmployerContribution.euros()}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = LimitRed
+                    )
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
         },
@@ -1554,7 +1628,9 @@ private fun AddReceiptDialog(
                             date = date,
                             amount = parsedAmount!!,
                             expenseType = normalizedType,
-                            expenseLimits = expenseLimits
+                            expenseLimits = expenseLimits,
+                            mealVoucherEmployerContribution =
+                                mealVoucherEmployerContribution
                         )
                     ) {
                         combinedAdvice = Triple(date, parsedAmount, normalizedType)
@@ -1588,6 +1664,7 @@ private fun EditReceiptDialog(
     receipt: Receipt,
     receipts: List<Receipt>,
     expenseLimits: Map<ExpenseType, BigDecimal>,
+    mealVoucherEmployerContribution: BigDecimal,
     onDismiss: () -> Unit,
     onConfirm: (LocalDate, BigDecimal, ExpenseType, Boolean) -> Unit
 ) {
@@ -1680,6 +1757,24 @@ private fun EditReceiptDialog(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                val employerContributionAlreadyApplied = receipts.any {
+                    it.id != receipt.id &&
+                        it.tripId == trip.id &&
+                        it.date == date &&
+                        it.expenseType.receivesMealVoucherDeduction
+                }
+                if (
+                    expenseType.receivesMealVoucherDeduction &&
+                    !employerContributionAlreadyApplied
+                ) {
+                    Text(
+                        "Participation employeur déduite sur ce justificatif : " +
+                            "-${mealVoucherEmployerContribution.euros()}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = LimitRed
+                    )
+                }
                 Text(
                     "Le montant remboursable et l’annotation du fichier seront recalculés.",
                     fontSize = 12.sp,
@@ -1710,6 +1805,8 @@ private fun EditReceiptDialog(
                             amount = parsedAmount!!,
                             expenseType = normalizedType,
                             expenseLimits = expenseLimits,
+                            mealVoucherEmployerContribution =
+                                mealVoucherEmployerContribution,
                             editingReceiptId = receipt.id
                         )
                     ) {
@@ -1882,6 +1979,7 @@ private fun shouldOfferCombinedCalculation(
     amount: BigDecimal,
     expenseType: ExpenseType,
     expenseLimits: Map<ExpenseType, BigDecimal>,
+    mealVoucherEmployerContribution: BigDecimal,
     editingReceiptId: String? = null
 ): Boolean {
     if (!expenseType.isLunch && !expenseType.isDinner) return false
@@ -1908,7 +2006,8 @@ private fun shouldOfferCombinedCalculation(
     return isCombinedMealCalculationBeneficial(
         entries = entries,
         zone = trip.mealZone,
-        customLimits = expenseLimits
+        customLimits = expenseLimits,
+        employerContribution = mealVoucherEmployerContribution
     )
 }
 

@@ -36,7 +36,8 @@ class ExpenseRepository(private val context: Context) {
         val loadedState = ExpenseState(
             trips = trips.sortedByDescending { it.startDate },
             receipts = receipts.sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category }),
-            customExpenseLimits = loadExpenseLimits()
+            customExpenseLimits = loadExpenseLimits(),
+            mealVoucherEmployerContribution = loadMealVoucherEmployerContribution()
         )
         if (preferences.getInt(KEY_LIMIT_POLICY_VERSION, 0) >= LIMIT_POLICY_VERSION) {
             return loadedState
@@ -129,11 +130,16 @@ class ExpenseRepository(private val context: Context) {
 
     fun saveExpenseLimits(
         limits: Map<ExpenseType, BigDecimal>,
+        mealVoucherEmployerContribution: BigDecimal,
         state: ExpenseState
     ): ExpenseState {
         require(limits.values.all { it >= BigDecimal.ZERO })
+        require(mealVoucherEmployerContribution >= BigDecimal.ZERO)
         val updated = recalculateDraftReceipts(
-            state.copy(customExpenseLimits = limits)
+            state.copy(
+                customExpenseLimits = limits,
+                mealVoucherEmployerContribution = mealVoucherEmployerContribution
+            )
         )
         persist(updated)
         return updated
@@ -360,6 +366,8 @@ class ExpenseRepository(private val context: Context) {
                         date = receipt.date,
                         previousReceipts = previousReceipts,
                         customLimits = state.customExpenseLimits,
+                        mealVoucherEmployerContribution =
+                            state.mealVoucherEmployerContribution,
                         combinedMealCalculation = receipt.combinedMealCalculation
                     )
                     val recalculated = receipt.copy(reimbursableAmount = reimbursableAmount)
@@ -408,8 +416,20 @@ class ExpenseRepository(private val context: Context) {
         date: LocalDate,
         previousReceipts: List<Receipt>,
         customLimits: Map<ExpenseType, BigDecimal>,
+        mealVoucherEmployerContribution: BigDecimal,
         combinedMealCalculation: Boolean = false
     ): BigDecimal {
+        val contributionAlreadyApplied = previousReceipts.any {
+            it.tripId == trip.id &&
+                it.date == date &&
+                it.expenseType.receivesMealVoucherDeduction
+        }
+        val reimbursableBase = applyMealVoucherEmployerContribution(
+            receiptAmount = amount,
+            expenseType = expenseType,
+            employerContribution = mealVoucherEmployerContribution,
+            contributionAlreadyApplied = contributionAlreadyApplied
+        )
         if (combinedMealCalculation && (expenseType.isLunch || expenseType.isDinner)) {
             val combinedType = trip.mealZone.lunchDinnerType()
             val combinedLimit = customLimits[combinedType]
@@ -426,7 +446,7 @@ class ExpenseRepository(private val context: Context) {
                     total + previous.reimbursableAmount
                 }
             return calculateReimbursableAmount(
-                receiptAmount = amount,
+                receiptAmount = reimbursableBase,
                 dailyAllowance = combinedLimit,
                 alreadySpent = alreadySpentCombined
             )
@@ -450,7 +470,7 @@ class ExpenseRepository(private val context: Context) {
                 total + previous.reimbursableAmount
             }
         return calculateReceiptReimbursableAmount(
-            receiptAmount = amount,
+            receiptAmount = reimbursableBase,
             expenseType = expenseType,
             dailyMealAllowance = trip.dailyMealAllowance,
             alreadySpentForType = alreadySpentForType,
@@ -478,6 +498,8 @@ class ExpenseRepository(private val context: Context) {
                                 date = receipt.date,
                                 previousReceipts = previousReceipts,
                                 customLimits = state.customExpenseLimits,
+                                mealVoucherEmployerContribution =
+                                    state.mealVoucherEmployerContribution,
                                 combinedMealCalculation = receipt.combinedMealCalculation
                             )
                             val recalculated = receipt.copy(
@@ -558,6 +580,10 @@ class ExpenseRepository(private val context: Context) {
             .putString(KEY_TRIPS, tripsJson.toString())
             .putString(KEY_RECEIPTS, receiptsJson.toString())
             .putString(KEY_EXPENSE_LIMITS, state.customExpenseLimits.toJson().toString())
+            .putString(
+                KEY_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION,
+                state.mealVoucherEmployerContribution.toPlainString()
+            )
             .apply()
     }
 
@@ -571,6 +597,16 @@ class ExpenseRepository(private val context: Context) {
             }
         }
     }.getOrDefault(emptyMap())
+
+    private fun loadMealVoucherEmployerContribution(): BigDecimal = runCatching {
+        BigDecimal(
+            preferences.getString(
+                KEY_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION,
+                DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION.toPlainString()
+            )
+        ).takeIf { it >= BigDecimal.ZERO }
+            ?: DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION
+    }.getOrDefault(DEFAULT_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION)
 
     private fun Map<ExpenseType, BigDecimal>.toJson() = JSONObject().apply {
         forEach { (type, limit) -> put(type.name, limit.toPlainString()) }
@@ -673,8 +709,10 @@ class ExpenseRepository(private val context: Context) {
         private const val KEY_TRIPS = "trips"
         private const val KEY_RECEIPTS = "receipts"
         private const val KEY_EXPENSE_LIMITS = "expense_limits"
+        private const val KEY_MEAL_VOUCHER_EMPLOYER_CONTRIBUTION =
+            "meal_voucher_employer_contribution"
         private const val KEY_LIMIT_POLICY_VERSION = "limit_policy_version"
-        private const val LIMIT_POLICY_VERSION = 1
+        private const val LIMIT_POLICY_VERSION = 2
         private val FILE_DATE = DateTimeFormatter.ISO_LOCAL_DATE
     }
 }

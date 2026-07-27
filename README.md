@@ -33,6 +33,8 @@ droits repas au jour le jour.
   avec plafonds repas automatiques et optimisation lunch + dinner ;
 - modification de la zone et suppression complète d'une note de frais depuis
   l'écran d'accueil ;
+- déduction quotidienne de la participation employeur au ticket restaurant,
+  réglable dans les paramètres et fixée à 6 € par défaut ;
 - conversion automatique des justificatifs image au format PDF lors de l'export ;
 - application du plafond personnalisé le plus strict et annotation rouge
   automatique du montant remboursable ;
@@ -71,7 +73,7 @@ Un fichier vide désactive la popup.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.15.0](releases/Fo-Notes-1.15.0.apk).
+[Fo Notes 1.16.0](releases/Fo-Notes-1.16.0.apk).
 
 ## Limites connues du MVP
 
