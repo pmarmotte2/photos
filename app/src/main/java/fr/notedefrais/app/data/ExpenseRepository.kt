@@ -152,6 +152,7 @@ class ExpenseRepository(private val context: Context) {
         amount: BigDecimal,
         expenseType: ExpenseType,
         mimeType: String,
+        comment: String,
         useCombinedMealCalculation: Boolean,
         state: ExpenseState
     ): ExpenseState {
@@ -185,6 +186,7 @@ class ExpenseRepository(private val context: Context) {
                 expenseType = normalizedExpenseType,
                 storedFileName = genericName,
                 mimeType = mimeType.ifBlank { mimeTypeFor(extension) },
+                comment = comment.trim(),
                 reimbursableAmount = amount
             )
             val withReceipt = state.copy(receipts = state.receipts + receipt)
@@ -229,6 +231,7 @@ class ExpenseRepository(private val context: Context) {
         date: LocalDate,
         amount: BigDecimal,
         expenseType: ExpenseType,
+        comment: String,
         useCombinedMealCalculation: Boolean,
         state: ExpenseState
     ): ExpenseState {
@@ -246,6 +249,7 @@ class ExpenseRepository(private val context: Context) {
             amount = amount,
             category = normalizedExpenseType.category,
             expenseType = normalizedExpenseType,
+            comment = comment.trim(),
             reimbursableAmount = amount,
             combinedMealCalculation = false
         )
@@ -631,6 +635,7 @@ class ExpenseRepository(private val context: Context) {
         .put("expenseType", expenseType.name)
         .put("storedFileName", storedFileName)
         .put("mimeType", mimeType)
+        .put("comment", comment)
         .put("reimbursableAmount", reimbursableAmount.toPlainString())
         .put("combinedMealCalculation", combinedMealCalculation)
 
@@ -686,6 +691,7 @@ class ExpenseRepository(private val context: Context) {
             expenseType = expenseType,
             storedFileName = getString("storedFileName"),
             mimeType = getString("mimeType"),
+            comment = optString("comment", ""),
             reimbursableAmount = BigDecimal(optString("reimbursableAmount", getString("amount"))),
             combinedMealCalculation = optBoolean("combinedMealCalculation", false)
         )

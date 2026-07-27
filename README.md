@@ -73,7 +73,15 @@ Un fichier vide désactive la popup.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.16.0](releases/Fo-Notes-1.16.0.apk).
+[Fo Notes 1.17.0](releases/Fo-Notes-1.17.0.apk).
+
+## Extension Chrome de diagnostic
+
+Le dossier [`chrome-extension-diagnostic`](chrome-extension-diagnostic) contient
+une extension Manifest V3 qui relève les champs et sélecteurs techniques du
+formulaire ATOS sans collecter les valeurs saisies. Une archive prête à
+décompresser est disponible dans
+[`releases/Fo-Notes-Diagnostic-0.1.0.zip`](releases/Fo-Notes-Diagnostic-0.1.0.zip).
 
 ## Limites connues du MVP
 

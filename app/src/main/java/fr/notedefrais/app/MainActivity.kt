@@ -790,8 +790,8 @@ private fun TripScreen(
     expenseLimits: Map<ExpenseType, BigDecimal>,
     mealVoucherEmployerContribution: BigDecimal,
     onBack: () -> Unit,
-    onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String, Boolean) -> Result<Unit>,
-    onUpdateReceipt: (Receipt, Trip, LocalDate, BigDecimal, ExpenseType, Boolean) -> Result<Unit>,
+    onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String, String, Boolean) -> Result<Unit>,
+    onUpdateReceipt: (Receipt, Trip, LocalDate, BigDecimal, ExpenseType, String, Boolean) -> Result<Unit>,
     onDeleteReceipt: (Receipt) -> Unit,
     fileFor: (Receipt) -> File
 ) {
@@ -948,7 +948,7 @@ private fun TripScreen(
             expenseLimits = expenseLimits,
             mealVoucherEmployerContribution = mealVoucherEmployerContribution,
             onDismiss = { pendingSource = null },
-            onConfirm = { date, amount, expenseType, useCombinedCalculation ->
+            onConfirm = { date, amount, expenseType, comment, useCombinedCalculation ->
                 onAddReceipt(
                     source.uri,
                     trip,
@@ -956,6 +956,7 @@ private fun TripScreen(
                     amount,
                     expenseType,
                     source.mimeType,
+                    comment,
                     useCombinedCalculation
                 )
                     .onSuccess {
@@ -977,13 +978,14 @@ private fun TripScreen(
             expenseLimits = expenseLimits,
             mealVoucherEmployerContribution = mealVoucherEmployerContribution,
             onDismiss = { receiptToEdit = null },
-            onConfirm = { date, amount, expenseType, useCombinedCalculation ->
+            onConfirm = { date, amount, expenseType, comment, useCombinedCalculation ->
                 onUpdateReceipt(
                     receipt,
                     trip,
                     date,
                     amount,
                     expenseType,
+                    comment,
                     useCombinedCalculation
                 )
                     .onSuccess {
@@ -1135,6 +1137,15 @@ private fun ReceiptRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(receipt.expenseType.displayLabel, fontWeight = FontWeight.Medium)
+            if (receipt.comment.isNotBlank()) {
+                Text(
+                    receipt.comment,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
                 receipt.storedFileName,
                 maxLines = 1,
@@ -1463,7 +1474,7 @@ private fun AddReceiptDialog(
     expenseLimits: Map<ExpenseType, BigDecimal>,
     mealVoucherEmployerContribution: BigDecimal,
     onDismiss: () -> Unit,
-    onConfirm: (LocalDate, BigDecimal, ExpenseType, Boolean) -> Unit
+    onConfirm: (LocalDate, BigDecimal, ExpenseType, String, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val defaultDate = LocalDate.now().coerceIn(trip.startDate, trip.endDate)
@@ -1471,6 +1482,7 @@ private fun AddReceiptDialog(
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ExpenseCategory.MEAL) }
     var expenseType by remember { mutableStateOf(ExpenseType.LUNCH) }
+    var comment by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var combinedAdvice by remember {
         mutableStateOf<Triple<LocalDate, BigDecimal, ExpenseType>?>(null)
@@ -1575,6 +1587,17 @@ private fun AddReceiptDialog(
                     receipts = receipts,
                     onSelected = { expenseType = it }
                 )
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Commentaire / description ATOS") },
+                    supportingText = {
+                        Text("Facultatif : sinon le libellé et la date seront utilisés.")
+                    },
+                    minLines = 2,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 val configuredLimit = expenseLimits[expenseType]
                 Text(
                     when {
@@ -1635,7 +1658,7 @@ private fun AddReceiptDialog(
                     ) {
                         combinedAdvice = Triple(date, parsedAmount, normalizedType)
                     } else {
-                        onConfirm(date, parsedAmount, normalizedType, false)
+                        onConfirm(date, parsedAmount, normalizedType, comment, false)
                     }
                 }
             }) { Text("Enregistrer") }
@@ -1651,7 +1674,7 @@ private fun AddReceiptDialog(
             onDismiss = { combinedAdvice = null },
             onApply = {
                 combinedAdvice = null
-                onConfirm(adviceDate, adviceAmount, adviceType, true)
+                onConfirm(adviceDate, adviceAmount, adviceType, comment, true)
             }
         )
     }
@@ -1666,12 +1689,13 @@ private fun EditReceiptDialog(
     expenseLimits: Map<ExpenseType, BigDecimal>,
     mealVoucherEmployerContribution: BigDecimal,
     onDismiss: () -> Unit,
-    onConfirm: (LocalDate, BigDecimal, ExpenseType, Boolean) -> Unit
+    onConfirm: (LocalDate, BigDecimal, ExpenseType, String, Boolean) -> Unit
 ) {
     var date by remember(receipt.id) { mutableStateOf(receipt.date) }
     var amount by remember(receipt.id) { mutableStateOf(receipt.amount.toFrenchAmount()) }
     var category by remember(receipt.id) { mutableStateOf(receipt.category) }
     var expenseType by remember(receipt.id) { mutableStateOf(receipt.expenseType) }
+    var comment by remember(receipt.id) { mutableStateOf(receipt.comment) }
     var error by remember(receipt.id) { mutableStateOf<String?>(null) }
     var combinedAdvice by remember(receipt.id) {
         mutableStateOf<Triple<LocalDate, BigDecimal, ExpenseType>?>(null)
@@ -1741,6 +1765,17 @@ private fun EditReceiptDialog(
                     receipts = receipts,
                     editingReceiptId = receipt.id,
                     onSelected = { expenseType = it }
+                )
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Commentaire / description ATOS") },
+                    supportingText = {
+                        Text("Facultatif : sinon le libellé et la date seront utilisés.")
+                    },
+                    minLines = 2,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
                 )
                 val configuredLimit = expenseLimits[expenseType]
                 Text(
@@ -1812,7 +1847,7 @@ private fun EditReceiptDialog(
                     ) {
                         combinedAdvice = Triple(date, parsedAmount, normalizedType)
                     } else {
-                        onConfirm(date, parsedAmount, normalizedType, false)
+                        onConfirm(date, parsedAmount, normalizedType, comment, false)
                     }
                 }
             }) {
@@ -1832,7 +1867,7 @@ private fun EditReceiptDialog(
             onDismiss = { combinedAdvice = null },
             onApply = {
                 combinedAdvice = null
-                onConfirm(adviceDate, adviceAmount, adviceType, true)
+                onConfirm(adviceDate, adviceAmount, adviceType, comment, true)
             }
         )
     }

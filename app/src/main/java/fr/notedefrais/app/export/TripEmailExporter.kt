@@ -257,6 +257,7 @@ internal data class ExportLine(
     val expenseType: ExpenseType,
     val amount: BigDecimal,
     val reimbursableAmount: BigDecimal,
+    val description: String,
     val attachmentNames: List<String>
 ) {
     val isCapped: Boolean get() = reimbursableAmount < amount
@@ -281,6 +282,10 @@ internal fun buildExportLines(
                         expenseType = receipt.expenseType,
                         amount = cumulated.sumOf { it.amount },
                         reimbursableAmount = cumulated.sumOf { it.reimbursableAmount },
+                        description = cumulated
+                            .map { it.exportDescription() }
+                            .distinct()
+                            .joinToString(" / "),
                         attachmentNames = cumulated.map { attachmentNames.getValue(it.id) }
                     )
                 )
@@ -291,6 +296,7 @@ internal fun buildExportLines(
                         expenseType = receipt.expenseType,
                         amount = receipt.amount,
                         reimbursableAmount = receipt.reimbursableAmount,
+                        description = receipt.exportDescription(),
                         attachmentNames = listOf(attachmentNames.getValue(receipt.id))
                     )
                 )
@@ -317,6 +323,7 @@ internal fun buildEmailBody(trip: Trip, lines: List<ExportLine>): String = build
             if (line.isCapped) {
                 append(" (remboursable : ${line.reimbursableAmount.toFrenchMoney()})")
             }
+            append(" — Commentaire : ${line.description}")
             appendLine()
         }
         appendLine()
@@ -341,7 +348,7 @@ internal fun buildCsv(
     appendLine("Statut;${trip.status.label.toCsvCell()}")
     trip.submittedDate?.let { appendLine("Date de soumission;$it") }
     appendLine()
-    appendLine("Date;Code;Libellé;Montant TTC;Montant remboursable;Pièce jointe")
+    appendLine("Date;Code;Libellé;Montant TTC;Montant remboursable;Commentaire / Description;Pièce jointe")
     var previousDate = lines.firstOrNull()?.date
     lines.forEach { line ->
         if (previousDate != null && line.date != previousDate) appendLine()
@@ -352,12 +359,16 @@ internal fun buildCsv(
                 line.expenseType.label.toCsvCell(),
                 line.amount.toFrenchNumber(),
                 line.reimbursableAmount.toFrenchNumber(),
+                line.description.toCsvCell(),
                 line.attachmentNames.joinToString(" | ").toCsvCell()
             ).joinToString(";")
         )
         previousDate = line.date
     }
 }
+
+private fun Receipt.exportDescription(): String =
+    comment.trim().ifBlank { "${expenseType.displayLabel} — $date" }
 
 private fun String.toSafeFilePart(): String = Normalizer
     .normalize(this, Normalizer.Form.NFD)

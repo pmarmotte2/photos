@@ -91,9 +91,47 @@ class TripEmailExporterTest {
 
         val csv = buildCsv(trip, lines)
 
-        assertTrue(csv.contains("Date;Code;Libellé;Montant TTC;Montant remboursable;Pièce jointe"))
+        assertTrue(
+            csv.contains(
+                "Date;Code;Libellé;Montant TTC;Montant remboursable;" +
+                    "Commentaire / Description;Pièce jointe"
+            )
+        )
         assertTrue(csv.contains("06_Lunch_2026-07-22.pdf"))
         assertTrue(Regex("2026-07-22.*\\R\\R2026-07-23", RegexOption.DOT_MATCHES_ALL).containsMatchIn(csv))
+    }
+
+    @Test
+    fun commentIsExportedAsAtosDescription() {
+        val date = LocalDate.of(2026, 7, 21)
+        val receipt = receipt(
+            id = "taxi",
+            date = date,
+            type = ExpenseType.TAXI,
+            comment = "Trajet gare vers le client"
+        )
+        val lines = buildExportLines(
+            listOf(receipt),
+            buildAttachmentNames(listOf(receipt))
+        )
+        val trip = Trip(name = "Les Clayes", startDate = date, endDate = date)
+
+        assertEquals("Trajet gare vers le client", lines.single().description)
+        assertTrue(buildEmailBody(trip, lines).contains("Commentaire : Trajet gare vers le client"))
+        assertTrue(buildCsv(trip, lines).contains("Trajet gare vers le client"))
+    }
+
+    @Test
+    fun emptyCommentFallsBackToExpenseLabelAndDate() {
+        val date = LocalDate.of(2026, 7, 21)
+        val receipt = receipt("taxi", date, ExpenseType.TAXI)
+
+        val line = buildExportLines(
+            listOf(receipt),
+            buildAttachmentNames(listOf(receipt))
+        ).single()
+
+        assertEquals("02 Taxi — 2026-07-21", line.description)
     }
 
     @Test
@@ -138,6 +176,29 @@ class TripEmailExporterTest {
     }
 
     @Test
+    fun cumulatedMealsCombineDistinctComments() {
+        val date = LocalDate.of(2026, 7, 22)
+        val receipts = listOf(
+            receipt(
+                "first",
+                date,
+                ExpenseType.LUNCH_DINNER_PARIS,
+                comment = "Déjeuner client"
+            ),
+            receipt(
+                "second",
+                date,
+                ExpenseType.LUNCH_DINNER_PARIS,
+                comment = "Dîner équipe"
+            )
+        )
+
+        val line = buildExportLines(receipts, buildAttachmentNames(receipts)).single()
+
+        assertEquals("Déjeuner client / Dîner équipe", line.description)
+    }
+
+    @Test
     fun archiveNameContainsTripNameAndExportDate() {
         assertEquals(
             "Deplacement_Paris_2026-07-27.zip",
@@ -175,7 +236,8 @@ class TripEmailExporterTest {
         type: ExpenseType,
         amount: BigDecimal = BigDecimal("12.50"),
         mimeType: String = "image/jpeg",
-        storedFileName: String = "$id.jpg"
+        storedFileName: String = "$id.jpg",
+        comment: String = ""
     ) = Receipt(
         id = id,
         tripId = "trip",
@@ -184,6 +246,7 @@ class TripEmailExporterTest {
         category = type.category,
         expenseType = type,
         storedFileName = storedFileName,
-        mimeType = mimeType
+        mimeType = mimeType,
+        comment = comment
     )
 }

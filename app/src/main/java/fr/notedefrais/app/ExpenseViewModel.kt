@@ -49,6 +49,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         amount: BigDecimal,
         expenseType: ExpenseType,
         mimeType: String,
+        comment: String,
         useCombinedMealCalculation: Boolean
     ): Result<Unit> = runCatching {
         _state.value = repository.importReceipt(
@@ -58,6 +59,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             amount,
             expenseType,
             mimeType,
+            comment,
             useCombinedMealCalculation,
             _state.value
         )
@@ -73,6 +75,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         date: LocalDate,
         amount: BigDecimal,
         expenseType: ExpenseType,
+        comment: String,
         useCombinedMealCalculation: Boolean
     ): Result<Unit> = runCatching {
         _state.value = repository.updateReceipt(
@@ -81,6 +84,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             date = date,
             amount = amount,
             expenseType = expenseType,
+            comment = comment,
             useCombinedMealCalculation = useCombinedMealCalculation,
             state = _state.value
         )

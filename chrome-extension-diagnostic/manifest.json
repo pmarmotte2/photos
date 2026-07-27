@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Fo Notes - Diagnostic ATOS",
+  "description": "Analyse la structure du formulaire de notes de frais sans collecter les valeurs saisies.",
+  "version": "0.1.0",
+  "permissions": [
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://nextgen.myatos.net/*"
+  ],
+  "action": {
+    "default_title": "Diagnostic Fo Notes",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://nextgen.myatos.net/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Diagnostic Fo Notes</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <span class="logo">FO</span>
+      <div>
+        <h1>Diagnostic Fo Notes</h1>
+        <p>Formulaire ATOS</p>
+      </div>
+    </header>
+
+    <main>
+      <p class="privacy">
+        Aucune valeur saisie, identité, pièce jointe ou donnée de connexion
+        n’est collectée.
+      </p>
+
+      <button id="scan" class="primary">Analyser la page</button>
+
+      <section id="result" hidden>
+        <dl>
+          <div><dt>Champs et actions</dt><dd id="controlCount">0</dd></div>
+          <div><dt>Libellés</dt><dd id="labelCount">0</dd></div>
+          <div><dt>Iframes</dt><dd id="frameCount">0</dd></div>
+        </dl>
+
+        <button id="highlight">Surligner les champs pendant 10 s</button>
+        <button id="copy">Copier le diagnostic JSON</button>
+        <button id="download">Télécharger le diagnostic JSON</button>
+      </section>
+
+      <p id="status" role="status">
+        Ouvrez l’étape « Enter Receipts », puis lancez l’analyse.
+      </p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

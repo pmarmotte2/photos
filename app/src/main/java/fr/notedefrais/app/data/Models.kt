@@ -163,6 +163,7 @@ data class Receipt(
     val expenseType: ExpenseType = ExpenseType.defaultFor(category),
     val storedFileName: String,
     val mimeType: String,
+    val comment: String = "",
     val reimbursableAmount: BigDecimal = amount,
     val combinedMealCalculation: Boolean = false
 ) {
