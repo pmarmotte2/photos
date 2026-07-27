@@ -474,7 +474,9 @@ private fun ExpenseSettingsScreen(
                             placeholder = { Text("Valeur par défaut") },
                             supportingText = {
                                 Text(
-                                    if (type.category == ExpenseCategory.MEAL) {
+                                    if (type.defaultLimit != null) {
+                                        "Par défaut : ${type.defaultLimit!!.euros()}"
+                                    } else if (type.category == ExpenseCategory.MEAL) {
                                         "Par défaut : plafond repas quotidien du déplacement"
                                     } else {
                                         "Par défaut : aucun plafond spécifique"
@@ -1276,6 +1278,8 @@ private fun AddReceiptDialog(
                     when {
                         configuredLimit != null ->
                             "Plafond configuré : ${configuredLimit.euros()}"
+                        expenseType.defaultLimit != null ->
+                            "Plafond par défaut : ${expenseType.defaultLimit!!.euros()}"
                         category == ExpenseCategory.MEAL ->
                             "Règle par défaut : ${trip.dailyMealAllowance.euros()} par jour pour les repas"
                         else ->
@@ -1362,6 +1366,8 @@ private fun EditReceiptDialog(
                     when {
                         configuredLimit != null ->
                             "Plafond configuré : ${configuredLimit.euros()}"
+                        expenseType.defaultLimit != null ->
+                            "Plafond par défaut : ${expenseType.defaultLimit!!.euros()}"
                         category == ExpenseCategory.MEAL ->
                             "Règle par défaut : ${trip.dailyMealAllowance.euros()} par jour pour les repas"
                         else ->

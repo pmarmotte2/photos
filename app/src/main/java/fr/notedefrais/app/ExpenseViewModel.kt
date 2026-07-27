@@ -11,6 +11,7 @@ import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
 import fr.notedefrais.app.data.TripStatus
+import fr.notedefrais.app.data.calculateDailyMealAllowance
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,12 +99,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         return generateSequence(trip.startDate) { previous ->
             previous.plusDays(1).takeUnless { it.isAfter(trip.endDate) }
         }.map { date ->
+            val dailyReceipts = receipts.filter { it.date == date }
             DailySummary(
                 date = date,
-                mealSpent = receipts
-                    .filter { it.date == date && it.category == ExpenseCategory.MEAL }
+                mealSpent = dailyReceipts
+                    .filter { it.category == ExpenseCategory.MEAL }
                     .fold(BigDecimal.ZERO) { total, receipt -> total + receipt.amount },
-                allowance = trip.dailyMealAllowance
+                allowance = calculateDailyMealAllowance(
+                    baseAllowance = trip.dailyMealAllowance,
+                    mealTypes = dailyReceipts.map { it.expenseType },
+                    customLimits = _state.value.customExpenseLimits
+                )
             )
         }.toList()
     }

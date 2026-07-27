@@ -75,8 +75,12 @@ enum class ExpenseType(
     RECEPTION("06", "Reception", ExpenseCategory.MEAL),
 
     HOTEL_ABROAD("07", "Hotel abroad", ExpenseCategory.HOTEL),
-    HOTEL_EXCEPT_PARIS_SOPHIA("07", "Hotel except Paris / Sophia", ExpenseCategory.HOTEL),
-    HOTEL_PARIS_SOPHIA("07", "Hotel Paris / Sophia", ExpenseCategory.HOTEL),
+    HOTEL_EXCEPT_PARIS_SOPHIA("07", "Hotel autres villes de province", ExpenseCategory.HOTEL),
+    HOTEL_PARIS_SOPHIA(
+        "07",
+        "Hotel Île-de-France / Sophia / Lyon / Aix / Marseille / Bordeaux",
+        ExpenseCategory.HOTEL
+    ),
 
     HOUSING_PARIS_SOPHIA("08", "Housing allow. Paris/Sophia", ExpenseCategory.HOUSING),
     HOUSING_ABROAD("08", "Housing allowance abroad", ExpenseCategory.HOUSING),
@@ -103,6 +107,23 @@ enum class ExpenseType(
     OTHER("99", "Autre type de frais", ExpenseCategory.OTHER);
 
     val displayLabel: String get() = "$code $label"
+    val defaultLimit: BigDecimal?
+        get() = when (this) {
+            LUNCH,
+            LUNCH_DRINK,
+            DINNER_DRINK,
+            DINNER_COUNTRY,
+            MEAL_ALLOWANCE_COUNTRY -> BigDecimal("20.00")
+
+            DINNER_PARIS,
+            MEAL_ALLOWANCE_PARIS -> BigDecimal("25.00")
+
+            LUNCH_DINNER_COUNTRY -> BigDecimal("40.00")
+            LUNCH_DINNER_PARIS -> BigDecimal("45.00")
+            HOTEL_EXCEPT_PARIS_SOPHIA -> BigDecimal("130.00")
+            HOTEL_PARIS_SOPHIA -> BigDecimal("168.00")
+            else -> null
+        }
 
     companion object {
         fun forCategory(category: ExpenseCategory): List<ExpenseType> =
@@ -174,3 +195,48 @@ fun applyExpenseLimit(
     ?.coerceAtLeast(BigDecimal.ZERO)
     ?.let(receiptAmount::coerceAtMost)
     ?: receiptAmount
+
+fun calculateReceiptReimbursableAmount(
+    receiptAmount: BigDecimal,
+    expenseType: ExpenseType,
+    dailyMealAllowance: BigDecimal,
+    alreadySpentForType: BigDecimal = BigDecimal.ZERO,
+    alreadySpentForMeals: BigDecimal = BigDecimal.ZERO,
+    customTypeLimit: BigDecimal? = null
+): BigDecimal {
+    val typeLimit = customTypeLimit ?: expenseType.defaultLimit
+    if (typeLimit != null) {
+        return if (expenseType.category == ExpenseCategory.MEAL) {
+            calculateReimbursableAmount(
+                receiptAmount = receiptAmount,
+                dailyAllowance = typeLimit,
+                alreadySpent = alreadySpentForType
+            )
+        } else {
+            applyExpenseLimit(receiptAmount, typeLimit)
+        }
+    }
+    return if (expenseType.category == ExpenseCategory.MEAL) {
+        calculateReimbursableAmount(
+            receiptAmount = receiptAmount,
+            dailyAllowance = dailyMealAllowance,
+            alreadySpent = alreadySpentForMeals
+        )
+    } else {
+        receiptAmount
+    }
+}
+
+fun calculateDailyMealAllowance(
+    baseAllowance: BigDecimal,
+    mealTypes: List<ExpenseType>,
+    customLimits: Map<ExpenseType, BigDecimal>
+): BigDecimal {
+    val typedAllowance = mealTypes
+        .asSequence()
+        .filter { it.category == ExpenseCategory.MEAL }
+        .distinct()
+        .mapNotNull { type -> customLimits[type] ?: type.defaultLimit }
+        .fold(BigDecimal.ZERO, BigDecimal::add)
+    return baseAllowance.coerceAtLeast(typedAllowance)
+}
