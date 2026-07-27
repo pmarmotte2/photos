@@ -8,6 +8,7 @@ import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.ExpenseRepository
 import fr.notedefrais.app.data.ExpenseState
 import fr.notedefrais.app.data.ExpenseType
+import fr.notedefrais.app.data.MealZone
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
 import fr.notedefrais.app.data.TripStatus
@@ -27,14 +28,15 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         name: String,
         startDate: LocalDate,
         endDate: LocalDate,
-        dailyMealAllowance: BigDecimal
+        mealZone: MealZone
     ): Result<Unit> = runCatching {
         _state.value = repository.saveTrip(
             Trip(
                 name = name.trim(),
                 startDate = startDate,
                 endDate = endDate,
-                dailyMealAllowance = dailyMealAllowance
+                mealZone = mealZone,
+                dailyMealAllowance = mealZone.dailyAllowance
             ),
             _state.value
         )
@@ -46,10 +48,18 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         date: LocalDate,
         amount: BigDecimal,
         expenseType: ExpenseType,
-        mimeType: String
+        mimeType: String,
+        useCombinedMealCalculation: Boolean
     ): Result<Unit> = runCatching {
         _state.value = repository.importReceipt(
-            source, trip, date, amount, expenseType, mimeType, _state.value
+            source,
+            trip,
+            date,
+            amount,
+            expenseType,
+            mimeType,
+            useCombinedMealCalculation,
+            _state.value
         )
     }
 
@@ -62,7 +72,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         trip: Trip,
         date: LocalDate,
         amount: BigDecimal,
-        expenseType: ExpenseType
+        expenseType: ExpenseType,
+        useCombinedMealCalculation: Boolean
     ): Result<Unit> = runCatching {
         _state.value = repository.updateReceipt(
             receipt = receipt,
@@ -70,6 +81,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             date = date,
             amount = amount,
             expenseType = expenseType,
+            useCombinedMealCalculation = useCombinedMealCalculation,
             state = _state.value
         )
     }

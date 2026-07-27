@@ -4,9 +4,14 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
+import fr.notedefrais.app.data.isDinner
+import fr.notedefrais.app.data.isLunch
+import fr.notedefrais.app.data.isLunchDinner
 import java.io.File
+import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.Normalizer
 import java.time.LocalDate
@@ -29,6 +34,7 @@ object TripEmailExporter {
 
         val sortedReceipts = sortReceiptsForExport(receipts)
         val attachmentNames = buildAttachmentNames(sortedReceipts)
+        val exportLines = buildExportLines(sortedReceipts, attachmentNames)
         val exportDirectory = File(context.cacheDir, "exports/${trip.id}").apply {
             deleteRecursively()
             mkdirs()
@@ -47,7 +53,7 @@ object TripEmailExporter {
             "Fo_Notes_${trip.name.toSafeFilePart()}_${trip.startDate}_${trip.endDate}.csv"
         ).apply {
             writeText(
-                "\uFEFF" + buildCsv(trip, sortedReceipts, attachmentNames),
+                "\uFEFF" + buildCsv(trip, exportLines),
                 Charsets.UTF_8
             )
         }
@@ -66,7 +72,7 @@ object TripEmailExporter {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             type = "application/zip"
             putExtra(Intent.EXTRA_SUBJECT, "Fo Notes — ${trip.name}")
-            putExtra(Intent.EXTRA_TEXT, buildEmailBody(trip, sortedReceipts))
+            putExtra(Intent.EXTRA_TEXT, buildEmailBody(trip, exportLines))
             putExtra(Intent.EXTRA_STREAM, archiveUri)
             clipData = ClipData.newUri(
                 context.contentResolver,
@@ -102,10 +108,18 @@ internal fun sortReceiptsForExport(receipts: List<Receipt>): List<Receipt> =
             { it.date },
             { it.expenseType.code.toIntOrNull() ?: Int.MAX_VALUE },
             { it.expenseType.code },
+            { it.expenseType.exportMealOrder() },
             { it.expenseType.label.lowercase(Locale.FRANCE) },
             { it.id }
         )
     )
+
+private fun ExpenseType.exportMealOrder(): Int = when {
+    this == ExpenseType.LUNCH || this == ExpenseType.LUNCH_DRINK -> 10
+    isLunchDinner -> 20
+    isDinner || this == ExpenseType.DINNER_DRINK -> 30
+    else -> 0
+}
 
 internal fun buildAttachmentNames(receipts: List<Receipt>): Map<String, String> {
     val occurrences = mutableMapOf<String, Int>()
@@ -125,7 +139,54 @@ internal fun buildAttachmentNames(receipts: List<Receipt>): Map<String, String> 
     }
 }
 
-internal fun buildEmailBody(trip: Trip, receipts: List<Receipt>): String = buildString {
+internal data class ExportLine(
+    val date: LocalDate,
+    val expenseType: ExpenseType,
+    val amount: BigDecimal,
+    val reimbursableAmount: BigDecimal,
+    val attachmentNames: List<String>
+) {
+    val isCapped: Boolean get() = reimbursableAmount < amount
+}
+
+internal fun buildExportLines(
+    receipts: List<Receipt>,
+    attachmentNames: Map<String, String>
+): List<ExportLine> {
+    val sorted = sortReceiptsForExport(receipts)
+    val emittedCumulatedDates = mutableSetOf<LocalDate>()
+    return buildList {
+        sorted.forEach { receipt ->
+            if (receipt.expenseType.isLunchDinner) {
+                if (!emittedCumulatedDates.add(receipt.date)) return@forEach
+                val cumulated = sorted.filter {
+                    it.date == receipt.date && it.expenseType.isLunchDinner
+                }
+                add(
+                    ExportLine(
+                        date = receipt.date,
+                        expenseType = receipt.expenseType,
+                        amount = cumulated.sumOf { it.amount },
+                        reimbursableAmount = cumulated.sumOf { it.reimbursableAmount },
+                        attachmentNames = cumulated.map { attachmentNames.getValue(it.id) }
+                    )
+                )
+            } else {
+                add(
+                    ExportLine(
+                        date = receipt.date,
+                        expenseType = receipt.expenseType,
+                        amount = receipt.amount,
+                        reimbursableAmount = receipt.reimbursableAmount,
+                        attachmentNames = listOf(attachmentNames.getValue(receipt.id))
+                    )
+                )
+            }
+        }
+    }
+}
+
+internal fun buildEmailBody(trip: Trip, lines: List<ExportLine>): String = buildString {
     val dateFormatter = DateTimeFormatter
         .ofLocalizedDate(FormatStyle.FULL)
         .withLocale(Locale.FRANCE)
@@ -136,20 +197,20 @@ internal fun buildEmailBody(trip: Trip, receipts: List<Receipt>): String = build
     appendLine("Statut : ${trip.status.label}")
     trip.submittedDate?.let { appendLine("Soumise le : $it") }
     appendLine()
-    receipts.groupBy { it.date }.forEach { (date, dailyReceipts) ->
+    lines.groupBy { it.date }.forEach { (date, dailyLines) ->
         appendLine(date.format(dateFormatter).replaceFirstChar { it.titlecase(Locale.FRANCE) })
-        dailyReceipts.forEach { receipt ->
-            append("• ${receipt.expenseType.displayLabel} — ${receipt.amount.toFrenchMoney()}")
-            if (receipt.isCapped) {
-                append(" (remboursable : ${receipt.reimbursableAmount.toFrenchMoney()})")
+        dailyLines.forEach { line ->
+            append("• ${line.expenseType.displayLabel} — ${line.amount.toFrenchMoney()}")
+            if (line.isCapped) {
+                append(" (remboursable : ${line.reimbursableAmount.toFrenchMoney()})")
             }
             appendLine()
         }
         appendLine()
     }
-    val total = receipts.fold(java.math.BigDecimal.ZERO) { sum, receipt -> sum + receipt.amount }
-    val reimbursable = receipts.fold(java.math.BigDecimal.ZERO) { sum, receipt ->
-        sum + receipt.reimbursableAmount
+    val total = lines.fold(BigDecimal.ZERO) { sum, line -> sum + line.amount }
+    val reimbursable = lines.fold(BigDecimal.ZERO) { sum, line ->
+        sum + line.reimbursableAmount
     }
     appendLine("Total déclaré : ${total.toFrenchMoney()}")
     appendLine("Total remboursable : ${reimbursable.toFrenchMoney()}")
@@ -159,8 +220,7 @@ internal fun buildEmailBody(trip: Trip, receipts: List<Receipt>): String = build
 
 internal fun buildCsv(
     trip: Trip,
-    receipts: List<Receipt>,
-    attachmentNames: Map<String, String>
+    lines: List<ExportLine>
 ): String = buildString {
     appendLine("Déplacement;${trip.name.toCsvCell()}")
     appendLine("Début;${trip.startDate}")
@@ -169,20 +229,20 @@ internal fun buildCsv(
     trip.submittedDate?.let { appendLine("Date de soumission;$it") }
     appendLine()
     appendLine("Date;Code;Libellé;Montant TTC;Montant remboursable;Pièce jointe")
-    var previousDate = receipts.firstOrNull()?.date
-    receipts.forEach { receipt ->
-        if (previousDate != null && receipt.date != previousDate) appendLine()
+    var previousDate = lines.firstOrNull()?.date
+    lines.forEach { line ->
+        if (previousDate != null && line.date != previousDate) appendLine()
         appendLine(
             listOf(
-                receipt.date.toString(),
-                receipt.expenseType.code,
-                receipt.expenseType.label.toCsvCell(),
-                receipt.amount.toFrenchNumber(),
-                receipt.reimbursableAmount.toFrenchNumber(),
-                attachmentNames.getValue(receipt.id).toCsvCell()
+                line.date.toString(),
+                line.expenseType.code,
+                line.expenseType.label.toCsvCell(),
+                line.amount.toFrenchNumber(),
+                line.reimbursableAmount.toFrenchNumber(),
+                line.attachmentNames.joinToString(" | ").toCsvCell()
             ).joinToString(";")
         )
-        previousDate = receipt.date
+        previousDate = line.date
     }
 }
 

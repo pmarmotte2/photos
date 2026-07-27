@@ -31,6 +31,19 @@ class TripEmailExporterTest {
     }
 
     @Test
+    fun lunchIsAlwaysExportedBeforeDinnerOnTheSameDay() {
+        val date = LocalDate.of(2026, 7, 22)
+        val sorted = sortReceiptsForExport(
+            listOf(
+                receipt("dinner", date, ExpenseType.DINNER_PARIS),
+                receipt("lunch", date, ExpenseType.LUNCH)
+            )
+        )
+
+        assertEquals(listOf("lunch", "dinner"), sorted.map { it.id })
+    }
+
+    @Test
     fun duplicateAttachmentsReceiveAnIncrementalSuffix() {
         val date = LocalDate.of(2026, 7, 22)
         val receipts = listOf(
@@ -58,12 +71,54 @@ class TripEmailExporterTest {
             )
         )
         val names = buildAttachmentNames(receipts)
+        val lines = buildExportLines(receipts, names)
 
-        val csv = buildCsv(trip, receipts, names)
+        val csv = buildCsv(trip, lines)
 
         assertTrue(csv.contains("Date;Code;Libellé;Montant TTC;Montant remboursable;Pièce jointe"))
         assertTrue(csv.contains("06_Lunch_2026-07-22.jpg"))
         assertTrue(Regex("2026-07-22.*\\R\\R2026-07-23", RegexOption.DOT_MATCHES_ALL).containsMatchIn(csv))
+    }
+
+    @Test
+    fun twoCumulatedMealsOnTheSameDayBecomeOneExportLine() {
+        val date = LocalDate.of(2026, 7, 22)
+        val receipts = listOf(
+            receipt(
+                "combined-first",
+                date,
+                ExpenseType.LUNCH_DINNER_PARIS,
+                amount = BigDecimal("18.50")
+            ),
+            receipt(
+                "combined-second",
+                date,
+                ExpenseType.LUNCH_DINNER_PARIS,
+                amount = BigDecimal("21.50")
+            )
+        )
+        val names = buildAttachmentNames(receipts)
+
+        val lines = buildExportLines(receipts, names)
+
+        assertEquals(1, lines.size)
+        assertEquals(BigDecimal("40.00"), lines.single().amount)
+        assertEquals(
+            listOf(
+                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22.jpg",
+                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22_2.jpg"
+            ),
+            lines.single().attachmentNames
+        )
+        val trip = Trip(
+            name = "Paris",
+            startDate = date,
+            endDate = date
+        )
+        val csv = buildCsv(trip, lines)
+        assertEquals(1, csv.lineSequence().count { it.contains("Lnch+Dnnr Paris") })
+        assertTrue(csv.contains("40,00"))
+        assertTrue(csv.contains(lines.single().attachmentNames.joinToString(" | ")))
     }
 
     @Test
@@ -101,12 +156,13 @@ class TripEmailExporterTest {
     private fun receipt(
         id: String,
         date: LocalDate,
-        type: ExpenseType
+        type: ExpenseType,
+        amount: BigDecimal = BigDecimal("12.50")
     ) = Receipt(
         id = id,
         tripId = "trip",
         date = date,
-        amount = BigDecimal("12.50"),
+        amount = amount,
         category = type.category,
         expenseType = type,
         storedFileName = "$id.jpg",

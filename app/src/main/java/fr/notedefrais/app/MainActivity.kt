@@ -104,9 +104,19 @@ import com.canhub.cropper.CropImageView
 import fr.notedefrais.app.data.DailySummary
 import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.ExpenseType
+import fr.notedefrais.app.data.MealEntry
+import fr.notedefrais.app.data.MealZone
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
 import fr.notedefrais.app.data.TripStatus
+import fr.notedefrais.app.data.dinnerType
+import fr.notedefrais.app.data.forMealZone
+import fr.notedefrais.app.data.isCombinedMealCalculationBeneficial
+import fr.notedefrais.app.data.isDinner
+import fr.notedefrais.app.data.isLunch
+import fr.notedefrais.app.data.isLunchDinner
+import fr.notedefrais.app.data.isStructuredMeal
+import fr.notedefrais.app.data.lunchDinnerType
 import fr.notedefrais.app.export.TripEmailExporter
 import fr.notedefrais.app.ocr.OcrAmountCandidate
 import fr.notedefrais.app.ocr.OcrDateCandidate
@@ -272,7 +282,7 @@ private fun TripsScreen(
     trips: List<Trip>,
     receipts: List<Receipt>,
     onTripClick: (Trip) -> Unit,
-    onCreateTrip: (String, LocalDate, LocalDate, BigDecimal) -> Result<Unit>,
+    onCreateTrip: (String, LocalDate, LocalDate, MealZone) -> Result<Unit>,
     onOpenSettings: () -> Unit,
     onUpdateTripTracking: (String, TripStatus, LocalDate?) -> Result<Unit>,
     fileFor: (Receipt) -> File
@@ -340,8 +350,8 @@ private fun TripsScreen(
     if (showCreateDialog) {
         CreateTripDialog(
             onDismiss = { showCreateDialog = false },
-            onConfirm = { name, start, end, allowance ->
-                onCreateTrip(name, start, end, allowance).onSuccess { showCreateDialog = false }
+            onConfirm = { name, start, end, mealZone ->
+                onCreateTrip(name, start, end, mealZone).onSuccess { showCreateDialog = false }
             }
         )
     }
@@ -586,7 +596,11 @@ private fun TripCard(
             Row {
                 Text("${receipts.size} justificatif${if (receipts.size > 1) "s" else ""}", fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                Text("${trip.dailyMealAllowance.euros()} / jour repas", color = FoRed, fontSize = 13.sp)
+                Text(
+                    "${trip.mealZone.label} • ${trip.dailyMealAllowance.euros()} / jour",
+                    color = FoRed,
+                    fontSize = 13.sp
+                )
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -622,8 +636,8 @@ private fun TripScreen(
     summaries: List<DailySummary>,
     expenseLimits: Map<ExpenseType, BigDecimal>,
     onBack: () -> Unit,
-    onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String) -> Result<Unit>,
-    onUpdateReceipt: (Receipt, Trip, LocalDate, BigDecimal, ExpenseType) -> Result<Unit>,
+    onAddReceipt: (Uri, Trip, LocalDate, BigDecimal, ExpenseType, String, Boolean) -> Result<Unit>,
+    onUpdateReceipt: (Receipt, Trip, LocalDate, BigDecimal, ExpenseType, Boolean) -> Result<Unit>,
     onDeleteReceipt: (Receipt) -> Unit,
     fileFor: (Receipt) -> File
 ) {
@@ -776,10 +790,19 @@ private fun TripScreen(
         AddReceiptDialog(
             trip = trip,
             source = source,
+            receipts = receipts,
             expenseLimits = expenseLimits,
             onDismiss = { pendingSource = null },
-            onConfirm = { date, amount, expenseType ->
-                onAddReceipt(source.uri, trip, date, amount, expenseType, source.mimeType)
+            onConfirm = { date, amount, expenseType, useCombinedCalculation ->
+                onAddReceipt(
+                    source.uri,
+                    trip,
+                    date,
+                    amount,
+                    expenseType,
+                    source.mimeType,
+                    useCombinedCalculation
+                )
                     .onSuccess {
                         pendingSource = null
                         Toast.makeText(context, "Justificatif enregistré", Toast.LENGTH_SHORT).show()
@@ -795,10 +818,18 @@ private fun TripScreen(
         EditReceiptDialog(
             trip = trip,
             receipt = receipt,
+            receipts = receipts,
             expenseLimits = expenseLimits,
             onDismiss = { receiptToEdit = null },
-            onConfirm = { date, amount, expenseType ->
-                onUpdateReceipt(receipt, trip, date, amount, expenseType)
+            onConfirm = { date, amount, expenseType, useCombinedCalculation ->
+                onUpdateReceipt(
+                    receipt,
+                    trip,
+                    date,
+                    amount,
+                    expenseType,
+                    useCombinedCalculation
+                )
                     .onSuccess {
                         receiptToEdit = null
                         Toast.makeText(context, "Justificatif modifié", Toast.LENGTH_SHORT).show()
@@ -980,13 +1011,13 @@ private fun ReceiptRow(
 @Composable
 private fun CreateTripDialog(
     onDismiss: () -> Unit,
-    onConfirm: (String, LocalDate, LocalDate, BigDecimal) -> Unit
+    onConfirm: (String, LocalDate, LocalDate, MealZone) -> Unit
 ) {
     val today = LocalDate.now()
     var name by remember { mutableStateOf("") }
     var start by remember { mutableStateOf(today) }
     var end by remember { mutableStateOf(today) }
-    var allowance by remember { mutableStateOf("40,00") }
+    var mealZone by remember { mutableStateOf(MealZone.PROVINCE) }
     var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -1012,28 +1043,69 @@ private fun CreateTripDialog(
                     onValueChange = { end = it },
                     minDate = start
                 )
-                OutlinedTextField(
-                    value = allowance, onValueChange = { allowance = it },
-                    label = { Text("Plafond repas quotidien (€)") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                MealZoneDropdown(
+                    selected = mealZone,
+                    onSelected = { mealZone = it }
+                )
+                Text(
+                    "Plafond repas calculé automatiquement : ${mealZone.dailyAllowance.euros()} par jour",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val parsedAllowance = allowance.toMoneyOrNull()
                 error = when {
                     name.isBlank() -> "Donnez un nom au déplacement."
                     end.isBefore(start) -> "La fin doit être après le début."
-                    parsedAllowance == null || parsedAllowance.signum() < 0 -> "Le plafond est invalide."
                     else -> null
                 }
-                if (error == null) onConfirm(name, start, end, parsedAllowance!!)
+                if (error == null) onConfirm(name, start, end, mealZone)
             }) { Text("Créer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MealZoneDropdown(
+    selected: MealZone,
+    onSelected: (MealZone) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selected.label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Zone des repas") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            MealZone.entries.forEach { zone ->
+                DropdownMenuItem(
+                    text = {
+                        Text("${zone.label} — ${zone.dailyAllowance.euros()} / jour")
+                    },
+                    onClick = {
+                        onSelected(zone)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1186,17 +1258,21 @@ private fun SourceDialog(onDismiss: () -> Unit, onCamera: () -> Unit, onFile: ()
 private fun AddReceiptDialog(
     trip: Trip,
     source: PendingSource,
+    receipts: List<Receipt>,
     expenseLimits: Map<ExpenseType, BigDecimal>,
     onDismiss: () -> Unit,
-    onConfirm: (LocalDate, BigDecimal, ExpenseType) -> Unit
+    onConfirm: (LocalDate, BigDecimal, ExpenseType, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val defaultDate = LocalDate.now().coerceIn(trip.startDate, trip.endDate)
     var date by remember { mutableStateOf(defaultDate) }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(ExpenseCategory.MEAL) }
-    var expenseType by remember { mutableStateOf(ExpenseType.defaultFor(category)) }
+    var expenseType by remember { mutableStateOf(ExpenseType.LUNCH) }
     var error by remember { mutableStateOf<String?>(null) }
+    var combinedAdvice by remember {
+        mutableStateOf<Triple<LocalDate, BigDecimal, ExpenseType>?>(null)
+    }
     var ocrLoading by remember(source.uri) { mutableStateOf(true) }
     var ocrCompleted by remember(source.uri) { mutableStateOf(false) }
     var ocrCandidates by remember(source.uri) {
@@ -1204,6 +1280,23 @@ private fun AddReceiptDialog(
     }
     var ocrDateCandidates by remember(source.uri) {
         mutableStateOf<List<OcrDateCandidate>>(emptyList())
+    }
+
+    LaunchedEffect(date, category, receipts) {
+        if (category == ExpenseCategory.MEAL && expenseType.isLunchDinner) {
+            val existingMeals = receipts.filter {
+                it.tripId == trip.id &&
+                    it.date == date &&
+                    (it.expenseType.isLunch || it.expenseType.isDinner)
+            }
+            if (existingMeals.isNotEmpty()) {
+                expenseType = if (existingMeals.any { it.expenseType.isLunch }) {
+                    trip.mealZone.dinnerType()
+                } else {
+                    ExpenseType.LUNCH
+                }
+            }
+        }
     }
 
     LaunchedEffect(source.uri) {
@@ -1265,12 +1358,19 @@ private fun AddReceiptDialog(
                     selected = category,
                     onSelected = {
                         category = it
-                        expenseType = ExpenseType.defaultFor(it)
+                        expenseType = if (it == ExpenseCategory.MEAL) {
+                            ExpenseType.LUNCH
+                        } else {
+                            ExpenseType.defaultFor(it)
+                        }
                     }
                 )
                 ExpenseTypeDropdown(
                     category = category,
                     selected = expenseType,
+                    trip = trip,
+                    date = date,
+                    receipts = receipts,
                     onSelected = { expenseType = it }
                 )
                 val configuredLimit = expenseLimits[expenseType]
@@ -1300,11 +1400,40 @@ private fun AddReceiptDialog(
                         "La date doit appartenir au déplacement."
                     else -> null
                 }
-                if (error == null) onConfirm(date, parsedAmount!!, expenseType)
+                if (error == null) {
+                    val normalizedType = expenseType.forMealZone(trip.mealZone)
+                    if (
+                        shouldOfferCombinedCalculation(
+                            receipts = receipts,
+                            trip = trip,
+                            date = date,
+                            amount = parsedAmount!!,
+                            expenseType = normalizedType,
+                            expenseLimits = expenseLimits
+                        )
+                    ) {
+                        combinedAdvice = Triple(date, parsedAmount, normalizedType)
+                    } else {
+                        onConfirm(date, parsedAmount, normalizedType, false)
+                    }
+                }
             }) { Text("Enregistrer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } }
     )
+
+    combinedAdvice?.let { (adviceDate, adviceAmount, adviceType) ->
+        CombinedMealAdviceDialog(
+            trip = trip,
+            combinedLimit = expenseLimits[trip.mealZone.lunchDinnerType()]
+                ?: trip.mealZone.dailyAllowance,
+            onDismiss = { combinedAdvice = null },
+            onApply = {
+                combinedAdvice = null
+                onConfirm(adviceDate, adviceAmount, adviceType, true)
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1312,15 +1441,37 @@ private fun AddReceiptDialog(
 private fun EditReceiptDialog(
     trip: Trip,
     receipt: Receipt,
+    receipts: List<Receipt>,
     expenseLimits: Map<ExpenseType, BigDecimal>,
     onDismiss: () -> Unit,
-    onConfirm: (LocalDate, BigDecimal, ExpenseType) -> Unit
+    onConfirm: (LocalDate, BigDecimal, ExpenseType, Boolean) -> Unit
 ) {
     var date by remember(receipt.id) { mutableStateOf(receipt.date) }
     var amount by remember(receipt.id) { mutableStateOf(receipt.amount.toFrenchAmount()) }
     var category by remember(receipt.id) { mutableStateOf(receipt.category) }
     var expenseType by remember(receipt.id) { mutableStateOf(receipt.expenseType) }
     var error by remember(receipt.id) { mutableStateOf<String?>(null) }
+    var combinedAdvice by remember(receipt.id) {
+        mutableStateOf<Triple<LocalDate, BigDecimal, ExpenseType>?>(null)
+    }
+
+    LaunchedEffect(date, category, receipts) {
+        if (category == ExpenseCategory.MEAL && expenseType.isLunchDinner) {
+            val existingMeals = receipts.filter {
+                it.id != receipt.id &&
+                    it.tripId == trip.id &&
+                    it.date == date &&
+                    (it.expenseType.isLunch || it.expenseType.isDinner)
+            }
+            if (existingMeals.isNotEmpty()) {
+                expenseType = if (existingMeals.any { it.expenseType.isLunch }) {
+                    trip.mealZone.dinnerType()
+                } else {
+                    ExpenseType.LUNCH
+                }
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1353,12 +1504,20 @@ private fun EditReceiptDialog(
                     selected = category,
                     onSelected = {
                         category = it
-                        expenseType = ExpenseType.defaultFor(it)
+                        expenseType = if (it == ExpenseCategory.MEAL) {
+                            ExpenseType.LUNCH
+                        } else {
+                            ExpenseType.defaultFor(it)
+                        }
                     }
                 )
                 ExpenseTypeDropdown(
                     category = category,
                     selected = expenseType,
+                    trip = trip,
+                    date = date,
+                    receipts = receipts,
+                    editingReceiptId = receipt.id,
                     onSelected = { expenseType = it }
                 )
                 val configuredLimit = expenseLimits[expenseType]
@@ -1396,7 +1555,24 @@ private fun EditReceiptDialog(
                         "La date doit appartenir au déplacement."
                     else -> null
                 }
-                if (error == null) onConfirm(date, parsedAmount!!, expenseType)
+                if (error == null) {
+                    val normalizedType = expenseType.forMealZone(trip.mealZone)
+                    if (
+                        shouldOfferCombinedCalculation(
+                            receipts = receipts,
+                            trip = trip,
+                            date = date,
+                            amount = parsedAmount!!,
+                            expenseType = normalizedType,
+                            expenseLimits = expenseLimits,
+                            editingReceiptId = receipt.id
+                        )
+                    ) {
+                        combinedAdvice = Triple(date, parsedAmount, normalizedType)
+                    } else {
+                        onConfirm(date, parsedAmount, normalizedType, false)
+                    }
+                }
             }) {
                 Text("Enregistrer")
             }
@@ -1405,6 +1581,19 @@ private fun EditReceiptDialog(
             TextButton(onClick = onDismiss) { Text("Annuler") }
         }
     )
+
+    combinedAdvice?.let { (adviceDate, adviceAmount, adviceType) ->
+        CombinedMealAdviceDialog(
+            trip = trip,
+            combinedLimit = expenseLimits[trip.mealZone.lunchDinnerType()]
+                ?: trip.mealZone.dailyAllowance,
+            onDismiss = { combinedAdvice = null },
+            onApply = {
+                combinedAdvice = null
+                onConfirm(adviceDate, adviceAmount, adviceType, true)
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1451,10 +1640,29 @@ private fun ExpenseCategoryDropdown(
 private fun ExpenseTypeDropdown(
     category: ExpenseCategory,
     selected: ExpenseType,
+    trip: Trip,
+    date: LocalDate,
+    receipts: List<Receipt>,
+    editingReceiptId: String? = null,
     onSelected: (ExpenseType) -> Unit
 ) {
     var expanded by remember(category) { mutableStateOf(false) }
-    val options = remember(category) { ExpenseType.forCategory(category) }
+    val hasSeparateMeal = receipts.any {
+        it.id != editingReceiptId &&
+            it.tripId == trip.id &&
+            it.date == date &&
+            (it.expenseType.isLunch || it.expenseType.isDinner)
+    }
+    val options = ExpenseType.forCategory(category)
+        .filter { type ->
+            if (category != ExpenseCategory.MEAL) {
+                true
+            } else {
+                val normalized = type.forMealZone(trip.mealZone)
+                normalized == type &&
+                    (!type.isLunchDinner || !hasSeparateMeal)
+            }
+        }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -1483,6 +1691,80 @@ private fun ExpenseTypeDropdown(
             }
         }
     }
+}
+
+@Composable
+private fun CombinedMealAdviceDialog(
+    trip: Trip,
+    combinedLimit: BigDecimal,
+    onDismiss: () -> Unit,
+    onApply: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Default.Restaurant,
+                contentDescription = null,
+                tint = FoRed
+            )
+        },
+        title = { Text("Calcul lunch + dinner plus avantageux") },
+        text = {
+            Text(
+                "Les plafonds séparés réduiraient le remboursement alors que le total reste " +
+                    "dans le plafond journalier de ${combinedLimit.euros()} " +
+                    "pour ${trip.mealZone.label}. Le calcul cumulé va être appliqué aux deux repas."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onApply) {
+                Text("Appliquer le cumul")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler")
+            }
+        }
+    )
+}
+
+private fun shouldOfferCombinedCalculation(
+    receipts: List<Receipt>,
+    trip: Trip,
+    date: LocalDate,
+    amount: BigDecimal,
+    expenseType: ExpenseType,
+    expenseLimits: Map<ExpenseType, BigDecimal>,
+    editingReceiptId: String? = null
+): Boolean {
+    if (!expenseType.isLunch && !expenseType.isDinner) return false
+
+    val normalizedType = expenseType.forMealZone(trip.mealZone)
+    val entries = receipts
+        .filter {
+            it.id != editingReceiptId &&
+                it.tripId == trip.id &&
+                it.date == date &&
+                it.expenseType.isStructuredMeal
+        }
+        .map { receipt ->
+            val type = when {
+                receipt.expenseType.isLunchDinner && normalizedType.isLunch ->
+                    trip.mealZone.dinnerType()
+                receipt.expenseType.isLunchDinner && normalizedType.isDinner ->
+                    ExpenseType.LUNCH
+                else -> receipt.expenseType.forMealZone(trip.mealZone)
+            }
+            MealEntry(receipt.amount, type)
+        } + MealEntry(amount, normalizedType)
+
+    return isCombinedMealCalculationBeneficial(
+        entries = entries,
+        zone = trip.mealZone,
+        customLimits = expenseLimits
+    )
 }
 
 @Composable

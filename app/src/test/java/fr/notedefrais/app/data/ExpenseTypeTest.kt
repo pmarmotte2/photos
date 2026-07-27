@@ -85,4 +85,71 @@ class ExpenseTypeTest {
 
         assertEquals(BigDecimal("45.00"), allowance)
     }
+
+    @Test
+    fun tripZoneSelectsTheMatchingDinnerAndCumulatedTypes() {
+        assertEquals(ExpenseType.DINNER_PARIS, MealZone.PARIS_SOPHIA.dinnerType())
+        assertEquals(
+            ExpenseType.LUNCH_DINNER_PARIS,
+            MealZone.PARIS_SOPHIA.lunchDinnerType()
+        )
+        assertEquals(ExpenseType.DINNER_COUNTRY, MealZone.PROVINCE.dinnerType())
+        assertEquals(
+            ExpenseType.LUNCH_DINNER_COUNTRY,
+            MealZone.PROVINCE.lunchDinnerType()
+        )
+    }
+
+    @Test
+    fun parisTripAutomaticallyUsesFortyFiveEuroDailyAllowance() {
+        val trip = Trip(
+            name = "Paris",
+            startDate = java.time.LocalDate.of(2026, 7, 27),
+            endDate = java.time.LocalDate.of(2026, 7, 27),
+            mealZone = MealZone.PARIS_SOPHIA
+        )
+
+        assertEquals(BigDecimal("45.00"), trip.dailyMealAllowance)
+    }
+
+    @Test
+    fun combinedCalculationIsSuggestedWhenSeparateLimitWouldLoseMoney() {
+        val beneficial = isCombinedMealCalculationBeneficial(
+            entries = listOf(
+                MealEntry(BigDecimal("25.00"), ExpenseType.LUNCH),
+                MealEntry(BigDecimal("15.00"), ExpenseType.DINNER_PARIS)
+            ),
+            zone = MealZone.PARIS_SOPHIA,
+            customLimits = emptyMap()
+        )
+
+        assertTrue(beneficial)
+    }
+
+    @Test
+    fun existingCumulatedMealBecomesTheOppositeOfTheNewSeparateMeal() {
+        assertEquals(
+            ExpenseType.DINNER_PARIS,
+            ExpenseType.LUNCH.oppositeTypeForExistingLunchDinner(MealZone.PARIS_SOPHIA)
+        )
+        assertEquals(
+            ExpenseType.LUNCH,
+            ExpenseType.DINNER_COUNTRY
+                .oppositeTypeForExistingLunchDinner(MealZone.PROVINCE)
+        )
+    }
+
+    @Test
+    fun combinedCalculationIsNotSuggestedWhenDailyTotalExceedsCombinedLimit() {
+        val beneficial = isCombinedMealCalculationBeneficial(
+            entries = listOf(
+                MealEntry(BigDecimal("30.00"), ExpenseType.LUNCH),
+                MealEntry(BigDecimal("20.00"), ExpenseType.DINNER_PARIS)
+            ),
+            zone = MealZone.PARIS_SOPHIA,
+            customLimits = emptyMap()
+        )
+
+        assertEquals(false, beneficial)
+    }
 }

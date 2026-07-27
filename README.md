@@ -29,6 +29,8 @@ droits repas au jour le jour.
   pour Paris, la province et l'étranger ;
 - recalcul automatique des justificatifs des notes encore en cours de saisie
   lors d'une modification des plafonds ;
+- choix de la zone Paris/Sophia ou Province à la création d'un déplacement,
+  avec plafonds repas automatiques et optimisation lunch + dinner ;
 - application du plafond personnalisé le plus strict et annotation rouge
   automatique du montant remboursable ;
 - suppression protégée par une confirmation.
@@ -66,7 +68,7 @@ Un fichier vide désactive la popup.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.12.0](releases/Fo-Notes-1.12.0.apk).
+[Fo Notes 1.13.0](releases/Fo-Notes-1.13.0.apk).
 
 ## Limites connues du MVP
 

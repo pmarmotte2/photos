@@ -11,12 +11,21 @@ enum class TripStatus(val label: String) {
     REIMBURSED("Remboursée")
 }
 
+enum class MealZone(
+    val label: String,
+    val dailyAllowance: BigDecimal
+) {
+    PARIS_SOPHIA("Paris / Sophia", BigDecimal("45.00")),
+    PROVINCE("Province", BigDecimal("40.00"))
+}
+
 data class Trip(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val startDate: LocalDate,
     val endDate: LocalDate,
-    val dailyMealAllowance: BigDecimal = BigDecimal("40.00"),
+    val mealZone: MealZone = MealZone.PROVINCE,
+    val dailyMealAllowance: BigDecimal = mealZone.dailyAllowance,
     val status: TripStatus = TripStatus.DRAFT,
     val submittedDate: LocalDate? = null
 ) {
@@ -130,7 +139,11 @@ enum class ExpenseType(
             entries.filter { it.category == category }
 
         fun defaultFor(category: ExpenseCategory): ExpenseType =
-            forCategory(category).firstOrNull() ?: OTHER
+            if (category == ExpenseCategory.MEAL) {
+                LUNCH
+            } else {
+                forCategory(category).firstOrNull() ?: OTHER
+            }
     }
 }
 
@@ -143,7 +156,8 @@ data class Receipt(
     val expenseType: ExpenseType = ExpenseType.defaultFor(category),
     val storedFileName: String,
     val mimeType: String,
-    val reimbursableAmount: BigDecimal = amount
+    val reimbursableAmount: BigDecimal = amount,
+    val combinedMealCalculation: Boolean = false
 ) {
     init {
         require(amount >= BigDecimal.ZERO)
@@ -154,6 +168,71 @@ data class Receipt(
     }
 
     val isCapped: Boolean get() = reimbursableAmount < amount
+}
+
+val ExpenseType.isLunch: Boolean
+    get() = this == ExpenseType.LUNCH
+
+val ExpenseType.isDinner: Boolean
+    get() = this == ExpenseType.DINNER_COUNTRY || this == ExpenseType.DINNER_PARIS
+
+val ExpenseType.isLunchDinner: Boolean
+    get() = this == ExpenseType.LUNCH_DINNER_COUNTRY ||
+        this == ExpenseType.LUNCH_DINNER_PARIS
+
+val ExpenseType.isStructuredMeal: Boolean
+    get() = isLunch || isDinner || isLunchDinner
+
+fun MealZone.dinnerType(): ExpenseType = when (this) {
+    MealZone.PARIS_SOPHIA -> ExpenseType.DINNER_PARIS
+    MealZone.PROVINCE -> ExpenseType.DINNER_COUNTRY
+}
+
+fun MealZone.lunchDinnerType(): ExpenseType = when (this) {
+    MealZone.PARIS_SOPHIA -> ExpenseType.LUNCH_DINNER_PARIS
+    MealZone.PROVINCE -> ExpenseType.LUNCH_DINNER_COUNTRY
+}
+
+fun ExpenseType.forMealZone(zone: MealZone): ExpenseType = when {
+    isDinner -> zone.dinnerType()
+    isLunchDinner -> zone.lunchDinnerType()
+    else -> this
+}
+
+fun ExpenseType.oppositeTypeForExistingLunchDinner(zone: MealZone): ExpenseType? = when {
+    isLunch -> zone.dinnerType()
+    isDinner -> ExpenseType.LUNCH
+    else -> null
+}
+
+data class MealEntry(
+    val amount: BigDecimal,
+    val expenseType: ExpenseType
+)
+
+fun isCombinedMealCalculationBeneficial(
+    entries: List<MealEntry>,
+    zone: MealZone,
+    customLimits: Map<ExpenseType, BigDecimal>
+): Boolean {
+    val lunches = entries.filter { it.expenseType.isLunch }
+    val dinners = entries.filter { it.expenseType.isDinner }
+    if (lunches.isEmpty() || dinners.isEmpty()) return false
+
+    val lunchTotal = lunches.fold(BigDecimal.ZERO) { total, entry -> total + entry.amount }
+    val dinnerTotal = dinners.fold(BigDecimal.ZERO) { total, entry -> total + entry.amount }
+    val lunchLimit = customLimits[ExpenseType.LUNCH] ?: ExpenseType.LUNCH.defaultLimit
+        ?: BigDecimal.ZERO
+    val dinnerType = zone.dinnerType()
+    val dinnerLimit = customLimits[dinnerType] ?: dinnerType.defaultLimit ?: BigDecimal.ZERO
+    val combinedType = zone.lunchDinnerType()
+    val combinedLimit = customLimits[combinedType] ?: combinedType.defaultLimit
+        ?: zone.dailyAllowance
+    val individualReimbursement =
+        lunchTotal.coerceAtMost(lunchLimit) + dinnerTotal.coerceAtMost(dinnerLimit)
+    val total = lunchTotal + dinnerTotal
+    val combinedReimbursement = total.coerceAtMost(combinedLimit)
+    return total <= combinedLimit && combinedReimbursement > individualReimbursement
 }
 
 data class ExpenseState(

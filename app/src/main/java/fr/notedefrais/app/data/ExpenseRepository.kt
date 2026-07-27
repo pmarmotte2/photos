@@ -97,9 +97,11 @@ class ExpenseRepository(private val context: Context) {
         amount: BigDecimal,
         expenseType: ExpenseType,
         mimeType: String,
+        useCombinedMealCalculation: Boolean,
         state: ExpenseState
     ): ExpenseState {
-        val category = expenseType.category
+        val normalizedExpenseType = expenseType.forMealZone(trip.mealZone)
+        val category = normalizedExpenseType.category
         require(!date.isBefore(trip.startDate) && !date.isAfter(trip.endDate))
         val extension = extensionFor(mimeType)
         val genericName = buildString {
@@ -119,37 +121,42 @@ class ExpenseRepository(private val context: Context) {
                 requireNotNull(input) { "Le fichier sélectionné est inaccessible." }
                 original.outputStream().use { output -> input.copyTo(output) }
             }
-            val reimbursableAmount = calculateReceiptReimbursement(
-                amount = amount,
-                expenseType = expenseType,
-                trip = trip,
-                date = date,
-                previousReceipts = state.receipts,
-                customLimits = state.customExpenseLimits
-            )
-
-            if (reimbursableAmount < amount) {
-                ReceiptAnnotator.annotate(
-                    source = original,
-                    destination = destination,
-                    mimeType = mimeType,
-                    reimbursableAmount = reimbursableAmount
-                )
-            } else {
-                original.copyTo(destination, overwrite = true)
-            }
+            original.copyTo(destination, overwrite = true)
             val receipt = Receipt(
                 tripId = trip.id,
                 date = date,
                 amount = amount,
                 category = category,
-                expenseType = expenseType,
+                expenseType = normalizedExpenseType,
                 storedFileName = genericName,
                 mimeType = mimeType.ifBlank { mimeTypeFor(extension) },
-                reimbursableAmount = reimbursableAmount
+                reimbursableAmount = amount
             )
-            val updated = state.copy(receipts = (state.receipts + receipt)
-                .sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category }))
+            val withReceipt = state.copy(receipts = state.receipts + receipt)
+            val oldDayPrepared = if (receipt.date != date) {
+                prepareMealDay(
+                    state = withReceipt,
+                    trip = trip,
+                    date = receipt.date,
+                    changedReceiptId = null,
+                    useCombinedMealCalculation = false
+                )
+            } else {
+                withReceipt
+            }
+            val oldDayRecalculated = if (receipt.date != date) {
+                recalculateTripDay(oldDayPrepared, trip, receipt.date)
+            } else {
+                oldDayPrepared
+            }
+            val prepared = prepareMealDay(
+                state = oldDayRecalculated,
+                trip = trip,
+                date = date,
+                changedReceiptId = receipt.id,
+                useCombinedMealCalculation = useCombinedMealCalculation
+            )
+            val updated = recalculateTripDay(prepared, trip, date)
             persist(updated)
             return updated
         } catch (error: Throwable) {
@@ -167,6 +174,7 @@ class ExpenseRepository(private val context: Context) {
         date: LocalDate,
         amount: BigDecimal,
         expenseType: ExpenseType,
+        useCombinedMealCalculation: Boolean,
         state: ExpenseState
     ): ExpenseState {
         require(state.receipts.any { it.id == receipt.id })
@@ -177,48 +185,169 @@ class ExpenseRepository(private val context: Context) {
         val original = File(originalsDirectory, receipt.storedFileName)
         require(original.exists()) { "Le justificatif original est introuvable." }
 
-        val destination = fileFor(receipt)
-        val replacement = File(receiptsDirectory, ".${receipt.storedFileName}.editing")
-        val category = expenseType.category
-        val reimbursableAmount = calculateReceiptReimbursement(
-            amount = amount,
-            expenseType = expenseType,
-            trip = trip,
+        val normalizedExpenseType = expenseType.forMealZone(trip.mealZone)
+        val updatedReceipt = receipt.copy(
             date = date,
-            previousReceipts = state.receipts.filterNot { it.id == receipt.id },
-            customLimits = state.customExpenseLimits
+            amount = amount,
+            category = normalizedExpenseType.category,
+            expenseType = normalizedExpenseType,
+            reimbursableAmount = amount,
+            combinedMealCalculation = false
         )
 
-        try {
-            if (reimbursableAmount < amount) {
-                ReceiptAnnotator.annotate(
-                    source = original,
-                    destination = replacement,
-                    mimeType = receipt.mimeType,
-                    reimbursableAmount = reimbursableAmount
-                )
-            } else {
-                original.copyTo(replacement, overwrite = true)
-            }
-            replacement.copyTo(destination, overwrite = true)
-            replacement.delete()
-
-            val updatedReceipt = receipt.copy(
-                date = date,
-                amount = amount,
-                category = category,
-                expenseType = expenseType,
-                reimbursableAmount = reimbursableAmount
+        return try {
+            val withReceipt = state.copy(
+                receipts = state.receipts.map {
+                    if (it.id == receipt.id) updatedReceipt else it
+                }
             )
-            val updated = state.copy(
+            val prepared = prepareMealDay(
+                state = withReceipt,
+                trip = trip,
+                date = date,
+                changedReceiptId = receipt.id,
+                useCombinedMealCalculation = useCombinedMealCalculation
+            )
+            val updated = recalculateTripDay(prepared, trip, date)
+            persist(updated)
+            updated
+        } catch (error: Throwable) {
+            throw error
+        }
+    }
+
+    private fun prepareMealDay(
+        state: ExpenseState,
+        trip: Trip,
+        date: LocalDate,
+        changedReceiptId: String?,
+        useCombinedMealCalculation: Boolean
+    ): ExpenseState {
+        val changedReceipt = changedReceiptId?.let { id ->
+            state.receipts.firstOrNull { it.id == id }
+        }
+        val changedType = changedReceipt?.expenseType?.forMealZone(trip.mealZone)
+        val sameDay = state.receipts.filter { it.tripId == trip.id && it.date == date }
+
+        if (changedType?.isLunchDinner == true) {
+            require(sameDay.none {
+                it.id != changedReceiptId && (it.expenseType.isLunch || it.expenseType.isDinner)
+            }) {
+                "Un lunch ou un dinner existe déjà ce jour-là. Le type lunch + dinner n’est plus disponible."
+            }
+        }
+
+        var normalized = state.receipts.map { current ->
+            if (current.tripId != trip.id || current.date != date) {
+                current
+            } else {
+                var type = current.expenseType.forMealZone(trip.mealZone)
+                if (
+                    current.id != changedReceiptId &&
+                    type.isLunchDinner &&
+                    changedType != null &&
+                    (changedType.isLunch || changedType.isDinner)
+                ) {
+                    type = requireNotNull(
+                        changedType.oppositeTypeForExistingLunchDinner(trip.mealZone)
+                    )
+                }
+                current.copy(
+                    expenseType = type,
+                    category = type.category
+                )
+            }
+        }
+
+        val structured = normalized.filter {
+            it.tripId == trip.id &&
+                it.date == date &&
+                (it.expenseType.isLunch || it.expenseType.isDinner)
+        }
+        val hasLunchAndDinner =
+            structured.any { it.expenseType.isLunch } &&
+                structured.any { it.expenseType.isDinner }
+        val retainCombinedCalculation =
+            hasLunchAndDinner && structured.any { it.combinedMealCalculation }
+        val applyCombinedCalculation =
+            hasLunchAndDinner && (useCombinedMealCalculation || retainCombinedCalculation)
+
+        normalized = normalized.map { current ->
+            if (
+                current.tripId == trip.id &&
+                current.date == date &&
+                (current.expenseType.isLunch || current.expenseType.isDinner)
+            ) {
+                current.copy(combinedMealCalculation = applyCombinedCalculation)
+            } else if (
+                current.tripId == trip.id &&
+                current.date == date &&
+                current.combinedMealCalculation
+            ) {
+                current.copy(combinedMealCalculation = false)
+            } else {
+                current
+            }
+        }
+        return state.copy(receipts = normalized)
+    }
+
+    private fun recalculateTripDay(
+        state: ExpenseState,
+        trip: Trip,
+        date: LocalDate
+    ): ExpenseState {
+        val recalculatedById = mutableMapOf<String, Receipt>()
+        val previousReceipts = mutableListOf<Receipt>()
+        val replacements = mutableListOf<Pair<File, File>>()
+        try {
+            state.receipts
+                .filter { it.tripId == trip.id && it.date == date }
+                .forEach { receipt ->
+                    val reimbursableAmount = calculateReceiptReimbursement(
+                        amount = receipt.amount,
+                        expenseType = receipt.expenseType,
+                        trip = trip,
+                        date = receipt.date,
+                        previousReceipts = previousReceipts,
+                        customLimits = state.customExpenseLimits,
+                        combinedMealCalculation = receipt.combinedMealCalculation
+                    )
+                    val recalculated = receipt.copy(reimbursableAmount = reimbursableAmount)
+                    val original = File(originalsDirectory, receipt.storedFileName)
+                    require(original.exists()) {
+                        "Le justificatif original ${receipt.storedFileName} est introuvable."
+                    }
+                    val replacement = File(
+                        receiptsDirectory,
+                        ".${receipt.storedFileName}.meal"
+                    )
+                    if (reimbursableAmount < receipt.amount) {
+                        ReceiptAnnotator.annotate(
+                            source = original,
+                            destination = replacement,
+                            mimeType = receipt.mimeType,
+                            reimbursableAmount = reimbursableAmount
+                        )
+                    } else {
+                        original.copyTo(replacement, overwrite = true)
+                    }
+                    replacements += replacement to fileFor(receipt)
+                    recalculatedById[receipt.id] = recalculated
+                    previousReceipts += recalculated
+                }
+
+            replacements.forEach { (replacement, destination) ->
+                replacement.copyTo(destination, overwrite = true)
+                replacement.delete()
+            }
+            return state.copy(
                 receipts = state.receipts
-                    .map { if (it.id == receipt.id) updatedReceipt else it }
+                    .map { recalculatedById[it.id] ?: it }
                     .sortedWith(compareByDescending<Receipt> { it.date }.thenBy { it.category })
             )
-            persist(updated)
-            return updated
         } catch (error: Throwable) {
-            replacement.delete()
+            replacements.forEach { (replacement, _) -> replacement.delete() }
             throw error
         }
     }
@@ -229,8 +358,30 @@ class ExpenseRepository(private val context: Context) {
         trip: Trip,
         date: LocalDate,
         previousReceipts: List<Receipt>,
-        customLimits: Map<ExpenseType, BigDecimal>
+        customLimits: Map<ExpenseType, BigDecimal>,
+        combinedMealCalculation: Boolean = false
     ): BigDecimal {
+        if (combinedMealCalculation && (expenseType.isLunch || expenseType.isDinner)) {
+            val combinedType = trip.mealZone.lunchDinnerType()
+            val combinedLimit = customLimits[combinedType]
+                ?: combinedType.defaultLimit
+                ?: trip.dailyMealAllowance
+            val alreadySpentCombined = previousReceipts
+                .filter {
+                    it.tripId == trip.id &&
+                        it.date == date &&
+                        it.combinedMealCalculation &&
+                        (it.expenseType.isLunch || it.expenseType.isDinner)
+                }
+                .fold(BigDecimal.ZERO) { total, previous ->
+                    total + previous.reimbursableAmount
+                }
+            return calculateReimbursableAmount(
+                receiptAmount = amount,
+                dailyAllowance = combinedLimit,
+                alreadySpent = alreadySpentCombined
+            )
+        }
         val alreadySpentForType = previousReceipts
             .filter {
                 it.tripId == trip.id &&
@@ -277,7 +428,8 @@ class ExpenseRepository(private val context: Context) {
                                 trip = trip,
                                 date = receipt.date,
                                 previousReceipts = previousReceipts,
-                                customLimits = state.customExpenseLimits
+                                customLimits = state.customExpenseLimits,
+                                combinedMealCalculation = receipt.combinedMealCalculation
                             )
                             val recalculated = receipt.copy(
                                 reimbursableAmount = reimbursableAmount
@@ -322,9 +474,26 @@ class ExpenseRepository(private val context: Context) {
     }
 
     fun deleteReceipt(receipt: Receipt, state: ExpenseState): ExpenseState {
+        val trip = state.trips.firstOrNull { it.id == receipt.tripId }
+        val withoutReceipt = state.copy(receipts = state.receipts.filterNot { it.id == receipt.id })
+        val prepared = if (trip != null) {
+            prepareMealDay(
+                state = withoutReceipt,
+                trip = trip,
+                date = receipt.date,
+                changedReceiptId = null,
+                useCombinedMealCalculation = false
+            )
+        } else {
+            withoutReceipt
+        }
+        val updated = if (trip != null) {
+            recalculateTripDay(prepared, trip, receipt.date)
+        } else {
+            prepared
+        }
         fileFor(receipt).delete()
         File(originalsDirectory, receipt.storedFileName).delete()
-        val updated = state.copy(receipts = state.receipts.filterNot { it.id == receipt.id })
         persist(updated)
         return updated
     }
@@ -363,6 +532,7 @@ class ExpenseRepository(private val context: Context) {
         .put("name", name)
         .put("startDate", startDate.toString())
         .put("endDate", endDate.toString())
+        .put("mealZone", mealZone.name)
         .put("dailyMealAllowance", dailyMealAllowance.toPlainString())
         .put("status", status.name)
         .put("submittedDate", submittedDate?.toString())
@@ -377,6 +547,7 @@ class ExpenseRepository(private val context: Context) {
         .put("storedFileName", storedFileName)
         .put("mimeType", mimeType)
         .put("reimbursableAmount", reimbursableAmount.toPlainString())
+        .put("combinedMealCalculation", combinedMealCalculation)
 
     private fun JSONObject.toTrip(): Trip {
         val status = runCatching {
@@ -390,12 +561,25 @@ class ExpenseRepository(private val context: Context) {
         } else {
             status
         }
+        val storedAllowance = BigDecimal(
+            optString("dailyMealAllowance", MealZone.PROVINCE.dailyAllowance.toPlainString())
+        )
+        val mealZone = runCatching {
+            MealZone.valueOf(getString("mealZone"))
+        }.getOrElse {
+            if (storedAllowance >= MealZone.PARIS_SOPHIA.dailyAllowance) {
+                MealZone.PARIS_SOPHIA
+            } else {
+                MealZone.PROVINCE
+            }
+        }
         return Trip(
             id = getString("id"),
             name = getString("name"),
             startDate = LocalDate.parse(getString("startDate")),
             endDate = LocalDate.parse(getString("endDate")),
-            dailyMealAllowance = BigDecimal(getString("dailyMealAllowance")),
+            mealZone = mealZone,
+            dailyMealAllowance = mealZone.dailyAllowance,
             status = safeStatus,
             submittedDate = if (safeStatus == TripStatus.DRAFT) null else submittedDate
         )
@@ -417,7 +601,8 @@ class ExpenseRepository(private val context: Context) {
             expenseType = expenseType,
             storedFileName = getString("storedFileName"),
             mimeType = getString("mimeType"),
-            reimbursableAmount = BigDecimal(optString("reimbursableAmount", getString("amount")))
+            reimbursableAmount = BigDecimal(optString("reimbursableAmount", getString("amount"))),
+            combinedMealCalculation = optBoolean("combinedMealCalculation", false)
         )
     }
 
