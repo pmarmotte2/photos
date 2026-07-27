@@ -9,9 +9,12 @@ import fr.notedefrais.app.data.Trip
 import java.io.File
 import java.math.RoundingMode
 import java.text.Normalizer
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object TripEmailExporter {
     fun send(
@@ -49,24 +52,47 @@ object TripEmailExporter {
             )
         }
         val files = listOf(csv) + exportedFiles
-        val uris = ArrayList(files.map { file ->
-            FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        })
+        val archive = File(
+            exportDirectory,
+            buildArchiveName(trip.name, LocalDate.now())
+        )
+        writeZipArchive(archive, files)
+        val archiveUri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.files",
+            archive
+        )
 
-        val sendIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "message/rfc822"
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/zip"
             putExtra(Intent.EXTRA_SUBJECT, "Fo Notes — ${trip.name}")
             putExtra(Intent.EXTRA_TEXT, buildEmailBody(trip, sortedReceipts))
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            clipData = ClipData.newUri(context.contentResolver, "Export Fo Notes", uris.first())
-                .also { clip ->
-                    uris.drop(1).forEach { uri -> clip.addItem(ClipData.Item(uri)) }
-                }
+            putExtra(Intent.EXTRA_STREAM, archiveUri)
+            clipData = ClipData.newUri(
+                context.contentResolver,
+                "Archive Fo Notes",
+                archiveUri
+            )
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(
             Intent.createChooser(sendIntent, "Envoyer le déplacement par e-mail")
         )
+    }
+}
+
+internal fun buildArchiveName(tripName: String, exportDate: LocalDate): String =
+    "${tripName.toSafeFilePart()}_${exportDate}.zip"
+
+internal fun writeZipArchive(destination: File, files: List<File>) {
+    require(files.isNotEmpty()) { "L’archive ne peut pas être vide." }
+    ZipOutputStream(destination.outputStream().buffered()).use { zip ->
+        files.forEach { file ->
+            require(file.isFile) { "Le fichier ${file.name} est introuvable." }
+            zip.putNextEntry(ZipEntry(file.name))
+            file.inputStream().buffered().use { input -> input.copyTo(zip) }
+            zip.closeEntry()
+        }
     }
 }
 
@@ -128,7 +154,7 @@ internal fun buildEmailBody(trip: Trip, receipts: List<Receipt>): String = build
     appendLine("Total déclaré : ${total.toFrenchMoney()}")
     appendLine("Total remboursable : ${reimbursable.toFrenchMoney()}")
     appendLine()
-    appendLine("Le récapitulatif CSV et les justificatifs sont joints à cet e-mail.")
+    appendLine("Le récapitulatif CSV et les justificatifs sont regroupés dans l’archive ZIP jointe.")
 }
 
 internal fun buildCsv(

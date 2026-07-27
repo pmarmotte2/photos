@@ -17,7 +17,7 @@ droits repas au jour le jour.
 - modification de la date, du montant et du type ATOS en touchant l'icône
   du justificatif ;
 - export d'un déplacement par e-mail depuis l'accueil ou son écran de détail,
-  avec récapitulatif CSV et justificatifs renommés explicitement ;
+  avec récapitulatif CSV et justificatifs renommés regroupés dans une archive ZIP ;
 - suivi de la date de soumission et du statut de chaque note de frais :
   en cours de saisie, envoyée, validée ou remboursée ;
 - message d'information dynamique récupéré au démarrage depuis le VPS ;
@@ -64,7 +64,7 @@ Un fichier vide désactive la popup.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.10.0](releases/Fo-Notes-1.10.0.apk).
+[Fo Notes 1.11.0](releases/Fo-Notes-1.11.0.apk).
 
 ## Limites connues du MVP
 
