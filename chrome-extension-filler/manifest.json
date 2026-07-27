@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Fo Notes - Remplissage ATOS",
   "description": "Prépare les lignes d'une note de frais ATOS depuis l'export Fo Notes.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "action": {
     "default_title": "Ouvrir l'assistant Fo Notes",
     "default_popup": "popup.html"

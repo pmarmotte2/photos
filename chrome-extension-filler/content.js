@@ -173,8 +173,10 @@
       const zipFile = elements.zip.files[0];
       if (zipFile) {
         zipEntries = await zipApi.readZip(zipFile);
-        const csv = zipApi.findEntry(zipEntries, "recapitulatif.csv");
-        if (!csv) throw new Error("Le fichier recapitulatif.csv est absent du ZIP.");
+        const csv = zipApi.findCsvEntry(zipEntries);
+        if (!csv) {
+          throw new Error("Aucun fichier CSV n’a été trouvé dans le ZIP.");
+        }
         csvText = new TextDecoder("utf-8").decode(csv.bytes);
       }
       parsedExport = parser.parseExport(elements.email.value, csvText);

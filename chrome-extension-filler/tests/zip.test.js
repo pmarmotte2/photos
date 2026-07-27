@@ -54,3 +54,20 @@ test("une entrée ZIP stockée est extraite", async () => {
   const entry = zipApi.findEntry(entries, "recapitulatif.csv");
   assert.equal(new TextDecoder().decode(entry.bytes), "Date;Code");
 });
+
+test("le CSV Fo Notes est reconnu même si son nom dépend du déplacement", () => {
+  const entries = new Map([
+    ["01_Taxi_2026-07-07.pdf", new Uint8Array([1])],
+    [
+      "Fo_Notes_cse_bezons_2026-07-07_2026-07-08.csv",
+      new TextEncoder().encode("Date;Code")
+    ]
+  ]);
+
+  const csv = zipApi.findCsvEntry(entries);
+
+  assert.equal(
+    csv.name,
+    "Fo_Notes_cse_bezons_2026-07-07_2026-07-08.csv"
+  );
+});

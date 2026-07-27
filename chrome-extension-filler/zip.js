@@ -89,5 +89,17 @@
     return null;
   }
 
-  return { findEntry, readZip };
+  function findCsvEntry(entries) {
+    const csvEntries = [...entries]
+      .filter(([name]) => name.toLowerCase().endsWith(".csv"))
+      .map(([name, bytes]) => ({ name, bytes }));
+    if (!csvEntries.length) return null;
+    return csvEntries.find((entry) =>
+      entry.name.split("/").at(-1).toLowerCase() === "recapitulatif.csv"
+    ) || csvEntries.find((entry) =>
+      /^fo[_ -]?notes[_ -]/i.test(entry.name.split("/").at(-1))
+    ) || csvEntries[0];
+  }
+
+  return { findCsvEntry, findEntry, readZip };
 });

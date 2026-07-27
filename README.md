@@ -91,7 +91,7 @@ prévisualise les lignes, renseigne les champs et ajoute les justificatifs sans
 déclencher l’étape finale **Review/Send**.
 
 L’archive installable est disponible dans
-[`releases/Fo-Notes-ATOS-0.1.0.zip`](releases/Fo-Notes-ATOS-0.1.0.zip).
+[`releases/Fo-Notes-ATOS-0.1.1.zip`](releases/Fo-Notes-ATOS-0.1.1.zip).
 
 ## Limites connues du MVP
 
