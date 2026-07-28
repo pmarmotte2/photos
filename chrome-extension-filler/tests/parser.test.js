@@ -78,3 +78,20 @@ test("les cellules CSV contenant un point-virgule sont reconnues", () => {
   const rows = parser.parseCsvRows('A;B\n"Taxi; retour";"Client ""A"""\n');
   assert.deepEqual(rows[1], ["Taxi; retour", 'Client "A"']);
 });
+
+test("un libellé SAP enrichi ou dupliqué correspond au type Fo Notes", () => {
+  assert.equal(
+    parser.textMatchScore(
+      "01 Transports (occasional) 01 Transports (occasional)",
+      "01 Transports (occasional)"
+    ),
+    90
+  );
+  assert.equal(
+    parser.textMatchScore(
+      "01 - Transports occasional",
+      "01 Transports (occasional)"
+    ),
+    100
+  );
+});

@@ -131,35 +131,26 @@ object ReceiptAnnotator {
         canvas: Canvas,
         calculation: ReimbursementCalculation
     ) {
-        val heading = "À REMBOURSER"
         val detailLines = calculation.annotationDetailLines()
-        val amountText = "${calculation.reimbursableAmount.annotationAmount()} €"
+        val amountText =
+            "Montant final : ${calculation.reimbursableAmount.annotationAmount()} €"
         val x = canvas.width * 0.06f
         val maxTextWidth = canvas.width * 0.88f
         val amountY = canvas.height * 0.94f
         val detailSpacing = canvas.height * 0.052f
-        val detailStartY = amountY - canvas.height * 0.16f -
+        val detailStartY = amountY - canvas.height * 0.10f -
             detailSpacing * detailLines.lastIndex.coerceAtLeast(0)
-        val headingY = detailStartY - canvas.height * 0.075f
-        val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val detailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(205, 28, 38)
-            textSize = canvas.width * 0.065f
-            typeface = Typeface.create("cursive", Typeface.BOLD)
-            style = Paint.Style.FILL
-        }
-        headingPaint.fitToWidth(heading, maxTextWidth)
-        val detailPaint = Paint(headingPaint).apply {
             textSize = canvas.width * 0.036f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            style = Paint.Style.FILL
         }
-        val amountPaint = Paint(headingPaint).apply {
-            textSize = canvas.width * 0.13f
+        val amountPaint = Paint(detailPaint).apply {
+            textSize = canvas.width * 0.075f
         }
         amountPaint.fitToWidth(amountText, maxTextWidth)
 
-        canvas.save()
-        canvas.rotate(-3f, x, amountY)
-        canvas.drawOutlinedText(heading, x, headingY, headingPaint)
         detailLines.forEachIndexed { index, line ->
             detailPaint.textSize = canvas.width * 0.036f
             detailPaint.fitToWidth(line, maxTextWidth)
@@ -171,18 +162,6 @@ object ReceiptAnnotator {
             )
         }
         canvas.drawOutlinedText(amountText, x, amountY, amountPaint)
-        val amountWidth = amountPaint.measureText(amountText)
-        canvas.drawLine(
-            x,
-            amountY + amountPaint.textSize * 0.13f,
-            (x + amountWidth).coerceAtMost(canvas.width * 0.96f),
-            amountY + amountPaint.textSize * 0.05f,
-            Paint(amountPaint).apply {
-                strokeWidth = (amountPaint.textSize * 0.075f).coerceAtLeast(3f)
-                strokeCap = Paint.Cap.ROUND
-            }
-        )
-        canvas.restore()
     }
 
     private fun Paint.fitToWidth(text: String, maxWidth: Float) {

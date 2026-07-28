@@ -35,6 +35,24 @@
       .replace(/\s+/g, " ");
   }
 
+  function semanticText(value) {
+    return comparable(value)
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function textMatchScore(candidateValue, targetValue) {
+    const candidate = semanticText(candidateValue);
+    const target = semanticText(targetValue);
+    if (!candidate || !target) return 0;
+    if (candidate === target) return 100;
+    if (candidate.startsWith(`${target} `)) return 90;
+    if (candidate.includes(target)) return 80;
+    if (candidate.length >= 8 && target.includes(candidate)) return 60;
+    return 0;
+  }
+
   function parseMoney(value) {
     const normalized = clean(value)
       .replace(/\s/g, "")
@@ -272,6 +290,8 @@
     parseCsvRows,
     parseEmail,
     parseExport,
-    parseMoney
+    parseMoney,
+    semanticText,
+    textMatchScore
   };
 });

@@ -11,7 +11,7 @@ Extension Chrome Manifest V3 qui prépare une note de frais dans l’écran
 - utilisation du montant remboursable lorsqu’il diffère du montant déclaré ;
 - saisie du type, du montant, des trois dates et de la description ;
 - regroupement des lignes `Lnch+Dnnr ... (cumulated)` d’une même journée ;
-- ajout des justificatifs PDF/JPG/PNG présents dans le ZIP ;
+- temporisation prudente de 0,5 seconde entre les actions de saisie ;
 - arrêt avant **Review/Send** afin de laisser une validation humaine.
 
 La description ATOS est le commentaire saisi dans Fo Notes. Si celui-ci est
@@ -31,11 +31,14 @@ vide, l’extension utilise `libellé — date`.
 1. Ouvrir une note de frais ATOS à l’étape **Enter Receipts**.
 2. Cliquer sur l’icône de l’extension ou sur le bouton flottant **FO**.
 3. Coller le mail récapitulatif Fo Notes.
-4. Sélectionner le ZIP reçu par mail pour inclure les justificatifs.
+4. Sélectionner le ZIP reçu par mail.
 5. Cliquer sur **Analyser l’export** et contrôler la prévisualisation.
 6. Confirmer que les lignes ne sont pas déjà présentes.
 7. Cliquer sur **Remplir ATOS**.
 8. Contrôler le résultat avant d’utiliser **Review/Send**.
+
+Les pièces jointes ne sont pas envoyées par l’extension. Le ZIP sert uniquement
+à lire le fichier CSV de référence.
 
 ## Sécurité
 

@@ -87,11 +87,11 @@ décompresser est disponible dans
 
 Le dossier [`chrome-extension-filler`](chrome-extension-filler) contient
 l’assistant de saisie ATOS. Il analyse le mail ou le CSV du ZIP Fo Notes,
-prévisualise les lignes, renseigne les champs et ajoute les justificatifs sans
-déclencher l’étape finale **Review/Send**.
+prévisualise les lignes et renseigne les champs sans déclencher l’étape finale
+**Review/Send**. Les justificatifs restent à ajouter manuellement dans ATOS.
 
 L’archive installable est disponible dans
-[`releases/Fo-Notes-ATOS-0.1.1.zip`](releases/Fo-Notes-ATOS-0.1.1.zip).
+[`releases/Fo-Notes-ATOS-0.1.9.zip`](releases/Fo-Notes-ATOS-0.1.9.zip).
 
 ## Limites connues du MVP
 

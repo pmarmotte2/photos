@@ -25,7 +25,7 @@
         <span class="fo-logo">FO</span>
         <div class="fo-title">
           <strong>Remplissage ATOS</strong>
-          <span>Fo Notes prépare la saisie, sans envoyer la note de frais.</span>
+          <span>Fo Notes v${chrome.runtime.getManifest().version} prépare la saisie, sans envoyer la note de frais.</span>
         </div>
         <button class="fo-icon-button" id="fo-close" type="button" aria-label="Fermer">×</button>
       </header>
@@ -37,7 +37,7 @@
         <div class="fo-field">
           <label for="fo-zip">Archive ZIP Fo Notes (facultative)</label>
           <input id="fo-zip" type="file" accept=".zip,application/zip">
-          <p class="fo-help">Avec le ZIP, le CSV devient la référence et les PDF sont ajoutés à ATOS.</p>
+          <p class="fo-help">Avec le ZIP, le CSV devient la référence pour la saisie des lignes.</p>
         </div>
         <div class="fo-actions">
           <button id="fo-analyse" class="fo-primary" type="button">Analyser l’export</button>
@@ -48,7 +48,7 @@
           <div class="fo-table-wrap">
             <table>
               <thead>
-                <tr><th>Date</th><th>Type</th><th>Remboursable</th><th>Description ATOS</th><th>PDF</th></tr>
+                <tr><th>Date</th><th>Type</th><th>Remboursable</th><th>Description ATOS</th></tr>
               </thead>
               <tbody id="fo-lines"></tbody>
             </table>
@@ -56,6 +56,10 @@
           <label class="fo-confirm">
             <input id="fo-confirm" type="checkbox">
             <span>Je confirme être sur <b>Enter Receipts</b> et que ces lignes ne sont pas déjà présentes.</span>
+          </label>
+          <label class="fo-confirm">
+            <input id="fo-cautious" type="checkbox" checked>
+            <span><b>Mode prudent</b> : pause de 0,5 seconde entre les actions.</span>
           </label>
           <div class="fo-actions">
             <button id="fo-fill" class="fo-primary" type="button" disabled>Remplir ATOS</button>
@@ -77,6 +81,7 @@
     meta: overlay.querySelector("#fo-meta"),
     lines: overlay.querySelector("#fo-lines"),
     confirm: overlay.querySelector("#fo-confirm"),
+    cautious: overlay.querySelector("#fo-cautious"),
     fill: overlay.querySelector("#fo-fill"),
     cancel: overlay.querySelector("#fo-cancel"),
     log: overlay.querySelector("#fo-log"),
@@ -115,33 +120,11 @@
     elements.log.className = "fo-log";
   }
 
-  function basename(name) {
-    return String(name).split("/").at(-1);
-  }
-
-  function attachmentFilesForExport() {
-    if (!zipEntries || !parsedExport) return [];
-    const requested = [...new Set(
-      parsedExport.entries.flatMap((entry) => entry.attachments || [])
-    )];
-    if (requested.length) {
-      return requested.map((name) => {
-        const found = zipApi.findEntry(zipEntries, name);
-        if (!found) throw new Error(`Pièce jointe absente du ZIP : ${name}`);
-        return found;
-      });
-    }
-    return [...zipEntries]
-      .filter(([name]) => /\.(pdf|jpe?g|png)$/i.test(name))
-      .map(([name, bytes]) => ({ name, bytes }));
-  }
-
   function renderPreview() {
-    const files = attachmentFilesForExport();
     elements.meta.textContent =
       `${parsedExport.tripName || "Déplacement"} · ` +
       `${parsedExport.startDate} au ${parsedExport.endDate} · ` +
-      `${parsedExport.entries.length} ligne(s) · ${files.length} justificatif(s)`;
+      `${parsedExport.entries.length} ligne(s)`;
     elements.lines.replaceChildren();
     for (const entry of parsedExport.entries) {
       const row = document.createElement("tr");
@@ -149,8 +132,7 @@
         entry.date,
         entry.label,
         `${parser.money(entry.reimbursableAmount)} €`,
-        entry.description,
-        entry.attachments.length ? entry.attachments.map(basename).join(", ") : "—"
+        entry.description
       ]) {
         const cell = document.createElement("td");
         cell.textContent = value;
@@ -210,6 +192,14 @@
       rect.height > 0;
   }
 
+  function isDisabled(node) {
+    return Boolean(
+      node?.disabled ||
+      node?.getAttribute("aria-disabled") === "true" ||
+      /\bdisabled\b/i.test(node?.className || "")
+    );
+  }
+
   function documents(rootDocument = document) {
     const result = [rootDocument];
     for (const frame of rootDocument.querySelectorAll("iframe")) {
@@ -258,7 +248,77 @@
       .find((node) => normalizeText(node.textContent) === target) || null;
   }
 
+  function receiptTableColumn(doc, title) {
+    const header = findHeader(doc, title);
+    if (!header) return null;
+    const row = header.closest("tr");
+    const table = header.closest("table");
+    if (!row || !table) return null;
+    const cells = [...row.children].filter((node) =>
+      node.tagName === "TH" || node.tagName === "TD"
+    );
+    const columnIndex = cells.indexOf(header);
+    return columnIndex >= 0 ? { table, headerRow: row, columnIndex } : null;
+  }
+
+  function rowControl(row, columnIndex) {
+    const cells = [...row.children].filter((node) =>
+      node.tagName === "TH" || node.tagName === "TD"
+    );
+    const cell = cells[columnIndex];
+    if (!cell) return null;
+    return [...cell.querySelectorAll(
+      "input:not([type='hidden']), textarea, [role='textbox']"
+    )].find(isVisible) || null;
+  }
+
+  function isActiveReceiptRow(row) {
+    if (row.matches("[aria-selected='true'], .selected, .lsTableRow--selected")) {
+      return true;
+    }
+    return Boolean(row.querySelector(
+      "input[type='checkbox']:checked, " +
+      "[role='checkbox'][aria-checked='true'], " +
+      "[aria-selected='true']"
+    ));
+  }
+
+  function findActiveReceiptRow(doc) {
+    const typeColumn = receiptTableColumn(doc, "Expense Type");
+    if (!typeColumn) return null;
+    const candidates = [...typeColumn.table.querySelectorAll("tr")]
+      .filter((row) => row !== typeColumn.headerRow)
+      .map((row) => ({
+        row,
+        control: rowControl(row, typeColumn.columnIndex)
+      }))
+      .filter((candidate) => candidate.control);
+    if (!candidates.length) return null;
+
+    const explicitlyActive = candidates.filter((candidate) =>
+      isActiveReceiptRow(candidate.row)
+    );
+    if (explicitlyActive.length) return explicitlyActive.at(-1).row;
+
+    const blankType = candidates.filter(({ control }) => {
+      const value = control.value ??
+        control.getAttribute("aria-label") ??
+        control.textContent ??
+        "";
+      return !/[\p{L}\p{N}]/u.test(value);
+    });
+    return (blankType.at(-1) || candidates.at(-1)).row;
+  }
+
   function findColumnControl(doc, title) {
+    const column = receiptTableColumn(doc, title);
+    const activeRow = findActiveReceiptRow(doc);
+    if (column && activeRow) {
+      const control = rowControl(activeRow, column.columnIndex);
+      if (control) return control;
+    }
+
+    // Repli géométrique pour une éventuelle variante du tableau ATOS.
     const header = findHeader(doc, title);
     if (!header) return null;
     const headerRect = header.getBoundingClientRect();
@@ -275,11 +335,16 @@
     });
     return controls.sort(
       (left, right) => left.getBoundingClientRect().top - right.getBoundingClientRect().top
-    )[0] || null;
+    ).at(-1) || null;
   }
 
   function sleep(milliseconds) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  function pace(multiplier = 1) {
+    const baseDelay = elements.cautious.checked ? 500 : 250;
+    return sleep(Math.round(baseDelay * multiplier));
   }
 
   async function waitFor(factory, message, timeout = 12000) {
@@ -326,6 +391,69 @@
     return `${day}.${month}.${year}`;
   }
 
+  function semanticText(value) {
+    return parser.semanticText(value);
+  }
+
+  function optionTexts(option) {
+    const values = [
+      option.getAttribute("aria-label"),
+      option.getAttribute("title"),
+      option.innerText,
+      option.textContent
+    ];
+    const labelledBy = option.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      for (const id of labelledBy.split(/\s+/)) {
+        values.push(option.ownerDocument.getElementById(id)?.textContent);
+      }
+    }
+    return [...new Set(values.map(semanticText).filter(Boolean))];
+  }
+
+  function optionMatchScore(option, target) {
+    return optionTexts(option).reduce((best, candidate) => {
+      return Math.max(best, parser.textMatchScore(candidate, target));
+    }, 0);
+  }
+
+  function currentMenuOptions(control, atosDocument) {
+    const availableDocuments = [...new Set([atosDocument, ...documents()])];
+    const controlledIds = [
+      control.getAttribute("aria-controls"),
+      control.getAttribute("aria-owns")
+    ]
+      .filter(Boolean)
+      .flatMap((value) => value.split(/\s+/))
+      .filter(Boolean);
+
+    const controlledContainers = controlledIds.flatMap((id) =>
+      availableDocuments
+        .map((doc) => doc.getElementById(id))
+        .filter(Boolean)
+    );
+    const controlledOptions = controlledContainers.flatMap((container) =>
+      container.matches("[role='option']")
+        ? [container]
+        : [...container.querySelectorAll("[role='option']")]
+    );
+    if (controlledOptions.length) return [...new Set(controlledOptions)];
+
+    const openContainers = availableDocuments.flatMap((doc) =>
+      [...doc.querySelectorAll("[role='listbox'], [role='menu']")].filter(isVisible)
+    );
+    const openOptions = openContainers.flatMap((container) =>
+      [...container.querySelectorAll("[role='option']")]
+    );
+    if (openOptions.length) return [...new Set(openOptions)];
+
+    const allOptions = availableDocuments.flatMap((doc) =>
+      [...doc.querySelectorAll("[role='option']")]
+    );
+    const visibleOptions = allOptions.filter(isVisible);
+    return visibleOptions.length ? visibleOptions : allOptions;
+  }
+
   async function selectExpenseType(doc, label) {
     const control = await waitFor(
       () => findColumnControl(doc, "Expense Type"),
@@ -333,106 +461,133 @@
     );
     control.click();
     await sleep(250);
-    const target = normalizeText(label);
-    const option = await waitFor(() => {
-      const candidates = [...doc.querySelectorAll("[role='option']")];
-      const exact = candidates.find((node) =>
-        normalizeText(node.getAttribute("aria-label") || node.textContent) === target
+    const candidates = await waitFor(
+      () => {
+        const options = currentMenuOptions(control, doc);
+        return options.some(isVisible) ? options : null;
+      },
+      `Le menu des types de dépense ne s’est pas ouvert pour : ${label}`
+    );
+    const ranked = candidates
+      .map((option) => ({
+        option,
+        score: optionMatchScore(option, label),
+        visible: isVisible(option)
+      }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) =>
+        Number(right.visible) - Number(left.visible) ||
+        right.score - left.score
       );
-      if (exact) exact.scrollIntoView({ block: "center" });
-      return exact && isVisible(exact) ? exact : null;
-    }, `Type de dépense ATOS introuvable : ${label}`);
+    const option = ranked[0]?.option;
+    if (!option) {
+      const detected = candidates
+        .filter(isVisible)
+        .flatMap(optionTexts)
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .slice(0, 8)
+        .join(" | ");
+      throw new Error(
+        `Type de dépense ATOS introuvable : ${label}. ` +
+        `Options détectées : ${detected || "aucune"}`
+      );
+    }
+    option.scrollIntoView({ block: "center" });
+    await sleep(150);
+    const optionView = option.ownerDocument.defaultView;
+    option.dispatchEvent(new optionView.MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      view: optionView
+    }));
+    option.dispatchEvent(new optionView.MouseEvent("mouseup", {
+      bubbles: true,
+      cancelable: true,
+      view: optionView
+    }));
     option.click();
-    await settle(doc, 500);
+    await settle(doc, elements.cautious.checked ? 1200 : 500);
   }
 
   async function fillEntry(doc, entry, index, total) {
     log(`Ligne ${index + 1}/${total} : ${entry.label}`);
     await selectExpenseType(doc, entry.label);
+    await pace(0.6);
 
     const amount = await waitFor(
       () => findColumnControl(doc, "Receipt Amount"),
       "Champ « Receipt Amount » introuvable."
     );
     setFieldValue(amount, parser.money(entry.reimbursableAmount));
+    await pace();
 
     const receiptDate = await waitFor(
       () => findColumnControl(doc, "Receipt Date"),
       "Champ « Receipt Date » introuvable."
     );
     setFieldValue(receiptDate, atosDate(entry.date));
+    await pace(0.8);
 
     const fromDate = await waitFor(
       () => findLabelField(doc, "From Date"),
       "Champ « From Date » introuvable."
     );
     setFieldValue(fromDate, atosDate(entry.date));
+    await pace(0.8);
 
     const toDate = await waitFor(
       () => findLabelField(doc, "To Date"),
       "Champ « To Date » introuvable."
     );
     setFieldValue(toDate, atosDate(entry.date));
+    await pace(0.8);
 
     const description = await waitFor(
       () => findLabelField(doc, "Description"),
       "Champ « Description » introuvable."
     );
     setFieldValue(description, entry.description);
-    await sleep(300);
+    await pace();
 
     const action = index === total - 1 ? "Accept" : "Accept and New Entry";
     const button = await waitFor(
-      () => findButton(doc, action),
-      `Bouton « ${action} » introuvable.`
+      () => {
+        const candidate = findButton(doc, action);
+        return candidate && !isDisabled(candidate) ? candidate : null;
+      },
+      `Bouton « ${action} » introuvable ou encore désactivé.`
     );
-    button.click();
-    await settle(doc, 900);
+    const previousActiveRow = findActiveReceiptRow(doc);
+    await pace(0.7);
+    dispatchFullClick(button);
+    await settle(doc, elements.cautious.checked ? 1700 : 900);
+
+    if (index < total - 1) {
+      await waitFor(
+        () => {
+          const nextRow = findActiveReceiptRow(doc);
+          return nextRow && nextRow !== previousActiveRow ? nextRow : null;
+        },
+        "ATOS n’a pas créé ou sélectionné la ligne suivante.",
+        20000
+      );
+      await pace(0.7);
+    }
   }
 
-  function mimeFor(name) {
-    if (/\.pdf$/i.test(name)) return "application/pdf";
-    if (/\.png$/i.test(name)) return "image/png";
-    return "image/jpeg";
-  }
-
-  async function uploadAttachments(doc, files) {
-    if (!files.length) return;
-    log(`Ouverture de la fenêtre des pièces jointes (${files.length}).`);
-    const attachButton = await waitFor(
-      () => findButton(doc, "Attach Receipts"),
-      "Bouton « Attach Receipts » introuvable."
-    );
-    attachButton.click();
-
-    for (let index = 0; index < files.length; index += 1) {
-      const item = files[index];
-      const input = await waitFor(
-        () => [...doc.querySelectorAll("input[type='file']")].find(isVisible),
-        "Champ de sélection d’une pièce jointe introuvable."
-      );
-      const file = new File([item.bytes], basename(item.name), {
-        type: mimeFor(item.name)
-      });
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      input.files = transfer.files;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      log(`Pièce ${index + 1}/${files.length} : ${file.name}`);
-
-      const uploadButton = await waitFor(
-        () => findButton(doc, "Upload"),
-        "Bouton « Upload » introuvable."
-      );
-      uploadButton.click();
-      await settle(doc, 1100);
-    }
-
-    const closeButton = findButton(doc, "Close");
-    if (closeButton) {
-      closeButton.click();
-      await settle(doc, 500);
-    }
+  function dispatchFullClick(element) {
+    const view = element.ownerDocument.defaultView;
+    element.dispatchEvent(new view.MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      view
+    }));
+    element.dispatchEvent(new view.MouseEvent("mouseup", {
+      bubbles: true,
+      cancelable: true,
+      view
+    }));
+    element.click();
   }
 
   async function fillAtos() {
@@ -454,16 +609,23 @@
       }
       const newEntry = findButton(doc, "New Entry");
       if (!newEntry) throw new Error("Bouton « New Entry » introuvable.");
-      const files = attachmentFilesForExport();
 
-      newEntry.click();
-      await settle(doc, 800);
+      log(
+        elements.cautious.checked
+          ? "Mode prudent actif : pause de 0,5 seconde entre les actions."
+          : "Mode rapide actif."
+      );
+      dispatchFullClick(newEntry);
+      await settle(doc, elements.cautious.checked ? 1500 : 800);
+      await waitFor(
+        () => findActiveReceiptRow(doc),
+        "ATOS n’a pas créé la première ligne de saisie."
+      );
       for (let index = 0; index < parsedExport.entries.length; index += 1) {
         await fillEntry(doc, parsedExport.entries[index], index, parsedExport.entries.length);
       }
-      await uploadAttachments(doc, files);
       log(
-        "Remplissage terminé. Vérifiez les lignes et les pièces jointes avant Review/Send.",
+        "Remplissage terminé. Vérifiez les lignes avant Review/Send.",
         "success"
       );
     } catch (error) {
