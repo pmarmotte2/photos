@@ -17,7 +17,8 @@ droits repas au jour le jour.
 - modification de la date, du montant et du type ATOS en touchant l'icône
   du justificatif ;
 - export d'un déplacement par e-mail depuis l'accueil ou son écran de détail,
-  avec récapitulatif CSV et justificatifs renommés regroupés dans une archive ZIP ;
+  avec récapitulatif CSV et justificatifs numérotés selon l'ordre de saisie,
+  puis regroupés dans une archive ZIP ;
 - suivi de la date de soumission et du statut de chaque note de frais :
   en cours de saisie, envoyée, validée ou remboursée ;
 - message d'information dynamique récupéré au démarrage depuis le VPS ;

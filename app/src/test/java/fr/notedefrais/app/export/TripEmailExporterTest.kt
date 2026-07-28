@@ -44,17 +44,27 @@ class TripEmailExporterTest {
     }
 
     @Test
-    fun duplicateAttachmentsReceiveAnIncrementalSuffix() {
+    fun attachmentsUseTheirEntryPositionAndAtosDescription() {
         val date = LocalDate.of(2026, 7, 22)
         val receipts = listOf(
-            receipt("first", date, ExpenseType.LUNCH),
-            receipt("second", date, ExpenseType.LUNCH)
+            receipt(
+                "first",
+                date,
+                ExpenseType.LUNCH,
+                comment = "Déjeuner avec le client"
+            ),
+            receipt(
+                "second",
+                date,
+                ExpenseType.DINNER_PARIS,
+                comment = "Dîner équipe"
+            )
         )
 
         val names = buildAttachmentNames(receipts)
 
-        assertEquals("06_Lunch_2026-07-22.pdf", names.getValue("first"))
-        assertEquals("06_Lunch_2026-07-22_2.pdf", names.getValue("second"))
+        assertEquals("01 Déjeuner avec le client.pdf", names.getValue("first"))
+        assertEquals("02 Dîner équipe.pdf", names.getValue("second"))
     }
 
     @Test
@@ -70,7 +80,7 @@ class TripEmailExporterTest {
 
         val names = buildAttachmentNames(listOf(pdfReceipt))
 
-        assertEquals("06_Lunch_2026-07-22.pdf", names.getValue("invoice"))
+        assertEquals("01 06 Lunch — 2026-07-22.pdf", names.getValue("invoice"))
     }
 
     @Test
@@ -97,7 +107,7 @@ class TripEmailExporterTest {
                     "Commentaire / Description;Pièce jointe"
             )
         )
-        assertTrue(csv.contains("06_Lunch_2026-07-22.pdf"))
+        assertTrue(csv.contains("01 06 Lunch — 2026-07-22.pdf"))
         assertTrue(Regex("2026-07-22.*\\R\\R2026-07-23", RegexOption.DOT_MATCHES_ALL).containsMatchIn(csv))
     }
 
@@ -159,8 +169,8 @@ class TripEmailExporterTest {
         assertEquals(BigDecimal("40.00"), lines.single().amount)
         assertEquals(
             listOf(
-                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22.pdf",
-                "06_Lnch_Dnnr_Paris_cumulated_2026-07-22_2.pdf"
+                "01 06 Lnch+Dnnr Paris (cumulated) — 2026-07-22.pdf",
+                "01 06 Lnch+Dnnr Paris (cumulated) — 2026-07-22 (2).pdf"
             ),
             lines.single().attachmentNames
         )

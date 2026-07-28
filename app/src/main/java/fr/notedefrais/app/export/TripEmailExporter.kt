@@ -138,15 +138,42 @@ private fun ExpenseType.exportMealOrder(): Int = when {
 }
 
 internal fun buildAttachmentNames(receipts: List<Receipt>): Map<String, String> {
-    val occurrences = mutableMapOf<String, Int>()
+    val sorted = sortReceiptsForExport(receipts)
+    val emittedCumulatedDates = mutableSetOf<LocalDate>()
+    val linePositions = mutableMapOf<String, Int>()
+    var currentPosition = 0
+
+    sorted.forEach { receipt ->
+        if (receipt.expenseType.isLunchDinner) {
+            if (emittedCumulatedDates.add(receipt.date)) currentPosition += 1
+        } else {
+            currentPosition += 1
+        }
+        linePositions[receipt.id] = currentPosition
+    }
+
+    val occurrences = mutableMapOf<Int, Int>()
     return buildMap {
-        receipts.forEach { receipt ->
-            val baseName = "${receipt.expenseType.displayLabel.toSafeFilePart()}_${receipt.date}"
-            val occurrence = occurrences.getOrDefault(baseName, 0) + 1
-            occurrences[baseName] = occurrence
-            val suffix = if (occurrence == 1) "" else "_$occurrence"
+        sorted.forEach { receipt ->
+            val position = linePositions.getValue(receipt.id)
+            val lineDescription = if (receipt.expenseType.isLunchDinner) {
+                sorted
+                    .filter { it.date == receipt.date && it.expenseType.isLunchDinner }
+                    .map { it.exportDescription() }
+                    .distinct()
+                    .joinToString(" / ")
+            } else {
+                receipt.exportDescription()
+            }
+            val occurrence = occurrences.getOrDefault(position, 0) + 1
+            occurrences[position] = occurrence
+            val suffix = if (occurrence == 1) "" else " ($occurrence)"
             val extension = receipt.exportExtension()
-            put(receipt.id, "$baseName$suffix.$extension")
+            val positionLabel = position.toString().padStart(2, '0')
+            put(
+                receipt.id,
+                "$positionLabel ${lineDescription.toSafeAttachmentPart()}$suffix.$extension"
+            )
         }
     }
 }
@@ -377,6 +404,17 @@ private fun String.toSafeFilePart(): String = Normalizer
     .trim('_')
     .take(80)
     .ifBlank { "justificatif" }
+
+private fun String.toSafeAttachmentPart(): String = replace(
+    Regex("[\\u0000-\\u001F<>:\"/\\\\|?*]+"),
+    " "
+)
+    .replace(Regex("\\s+"), " ")
+    .trim()
+    .trimEnd('.', ' ')
+    .take(90)
+    .trimEnd('.', ' ')
+    .ifBlank { "Justificatif" }
 
 private fun String.toCsvCell(): String =
     if (contains(';') || contains('"') || contains('\n')) {
