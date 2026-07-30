@@ -10,6 +10,8 @@ Extension Chrome Manifest V3 qui prépare une note de frais dans l’écran
 - prévisualisation avant toute modification d’ATOS ;
 - utilisation du montant remboursable lorsqu’il diffère du montant déclaré ;
 - saisie du type, du montant, des trois dates et de la description ;
+- ciblage strict de la nouvelle ligne créée après **Accept and New Entry** ;
+- troncature automatique des descriptions à la longueur acceptée par SAP ;
 - regroupement des lignes `Lnch+Dnnr ... (cumulated)` d’une même journée ;
 - temporisation prudente de 0,5 seconde entre les actions de saisie ;
 - arrêt avant **Review/Send** afin de laisser une validation humaine.

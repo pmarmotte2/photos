@@ -53,6 +53,14 @@
     return 0;
   }
 
+  function truncateText(value, limit) {
+    const text = String(value ?? "");
+    if (!Number.isInteger(limit) || limit <= 0 || text.length <= limit) {
+      return text;
+    }
+    return text.slice(0, limit).trimEnd();
+  }
+
   function parseMoney(value) {
     const normalized = clean(value)
       .replace(/\s/g, "")
@@ -292,6 +300,7 @@
     parseExport,
     parseMoney,
     semanticText,
-    textMatchScore
+    textMatchScore,
+    truncateText
   };
 });

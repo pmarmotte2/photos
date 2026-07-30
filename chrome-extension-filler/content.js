@@ -272,50 +272,25 @@
     )].find(isVisible) || null;
   }
 
-  function isActiveReceiptRow(row) {
-    if (row.matches("[aria-selected='true'], .selected, .lsTableRow--selected")) {
-      return true;
-    }
-    return Boolean(row.querySelector(
-      "input[type='checkbox']:checked, " +
-      "[role='checkbox'][aria-checked='true'], " +
-      "[aria-selected='true']"
-    ));
-  }
-
-  function findActiveReceiptRow(doc) {
+  function receiptRows(doc) {
     const typeColumn = receiptTableColumn(doc, "Expense Type");
-    if (!typeColumn) return null;
-    const candidates = [...typeColumn.table.querySelectorAll("tr")]
+    if (!typeColumn) return [];
+    return [...typeColumn.table.querySelectorAll("tr")]
       .filter((row) => row !== typeColumn.headerRow)
       .map((row) => ({
         row,
-        control: rowControl(row, typeColumn.columnIndex)
+        typeControl: rowControl(row, typeColumn.columnIndex)
       }))
-      .filter((candidate) => candidate.control);
-    if (!candidates.length) return null;
-
-    const explicitlyActive = candidates.filter((candidate) =>
-      isActiveReceiptRow(candidate.row)
-    );
-    if (explicitlyActive.length) return explicitlyActive.at(-1).row;
-
-    const blankType = candidates.filter(({ control }) => {
-      const value = control.value ??
-        control.getAttribute("aria-label") ??
-        control.textContent ??
-        "";
-      return !/[\p{L}\p{N}]/u.test(value);
-    });
-    return (blankType.at(-1) || candidates.at(-1)).row;
+      .filter((candidate) => candidate.typeControl)
+      .map((candidate, index) => ({ ...candidate, index }));
   }
 
-  function findColumnControl(doc, title) {
+  function findColumnControl(doc, title, rowIndex = null) {
     const column = receiptTableColumn(doc, title);
-    const activeRow = findActiveReceiptRow(doc);
-    if (column && activeRow) {
-      const control = rowControl(activeRow, column.columnIndex);
-      if (control) return control;
+    if (column && Number.isInteger(rowIndex)) {
+      const targetRow = receiptRows(doc)
+        .find((candidate) => candidate.index === rowIndex)?.row;
+      return targetRow ? rowControl(targetRow, column.columnIndex) : null;
     }
 
     // Repli géométrique pour une éventuelle variante du tableau ATOS.
@@ -386,6 +361,24 @@
     field.blur();
   }
 
+  function truncateForField(field, value, fallbackLimit) {
+    const declaredLimit = Number.parseInt(
+      field.getAttribute("maxlength") ||
+      field.getAttribute("data-maxlength") ||
+      "",
+      10
+    );
+    const limit = Number.isInteger(declaredLimit) && declaredLimit > 0
+      ? declaredLimit
+      : fallbackLimit;
+    const text = String(value);
+    return {
+      value: parser.truncateText(text, limit),
+      limit,
+      truncated: text.length > limit
+    };
+  }
+
   function atosDate(isoDate) {
     const [year, month, day] = isoDate.split("-");
     return `${day}.${month}.${year}`;
@@ -454,9 +447,9 @@
     return visibleOptions.length ? visibleOptions : allOptions;
   }
 
-  async function selectExpenseType(doc, label) {
+  async function selectExpenseType(doc, label, rowIndex) {
     const control = await waitFor(
-      () => findColumnControl(doc, "Expense Type"),
+      () => findColumnControl(doc, "Expense Type", rowIndex),
       "Champ « Expense Type » introuvable."
     );
     control.click();
@@ -509,20 +502,23 @@
     await settle(doc, elements.cautious.checked ? 1200 : 500);
   }
 
-  async function fillEntry(doc, entry, index, total) {
-    log(`Ligne ${index + 1}/${total} : ${entry.label}`);
-    await selectExpenseType(doc, entry.label);
+  async function fillEntry(doc, entry, index, total, rowIndex) {
+    log(
+      `Ligne ${index + 1}/${total} : ${entry.label} ` +
+      `(ligne SAP ${rowIndex + 1})`
+    );
+    await selectExpenseType(doc, entry.label, rowIndex);
     await pace(0.6);
 
     const amount = await waitFor(
-      () => findColumnControl(doc, "Receipt Amount"),
+      () => findColumnControl(doc, "Receipt Amount", rowIndex),
       "Champ « Receipt Amount » introuvable."
     );
     setFieldValue(amount, parser.money(entry.reimbursableAmount));
     await pace();
 
     const receiptDate = await waitFor(
-      () => findColumnControl(doc, "Receipt Date"),
+      () => findColumnControl(doc, "Receipt Date", rowIndex),
       "Champ « Receipt Date » introuvable."
     );
     setFieldValue(receiptDate, atosDate(entry.date));
@@ -546,7 +542,14 @@
       () => findLabelField(doc, "Description"),
       "Champ « Description » introuvable."
     );
-    setFieldValue(description, entry.description);
+    const safeDescription = truncateForField(description, entry.description, 40);
+    if (safeDescription.truncated) {
+      log(
+        `Description de la ligne ${index + 1} tronquée à ` +
+        `${safeDescription.limit} caractères pour SAP.`
+      );
+    }
+    setFieldValue(description, safeDescription.value);
     await pace();
 
     const action = index === total - 1 ? "Accept" : "Accept and New Entry";
@@ -557,22 +560,26 @@
       },
       `Bouton « ${action} » introuvable ou encore désactivé.`
     );
-    const previousActiveRow = findActiveReceiptRow(doc);
+    const rowCountBeforeAccept = receiptRows(doc).length;
     await pace(0.7);
     dispatchFullClick(button);
     await settle(doc, elements.cautious.checked ? 1700 : 900);
 
     if (index < total - 1) {
-      await waitFor(
+      const nextRow = await waitFor(
         () => {
-          const nextRow = findActiveReceiptRow(doc);
-          return nextRow && nextRow !== previousActiveRow ? nextRow : null;
+          const rows = receiptRows(doc);
+          return rows.length > rowCountBeforeAccept
+            ? rows.at(-1)
+            : null;
         },
-        "ATOS n’a pas créé ou sélectionné la ligne suivante.",
+        "ATOS n’a pas créé une nouvelle ligne distincte.",
         20000
       );
       await pace(0.7);
+      return nextRow.index;
     }
+    return null;
   }
 
   function dispatchFullClick(element) {
@@ -615,14 +622,28 @@
           ? "Mode prudent actif : pause de 0,5 seconde entre les actions."
           : "Mode rapide actif."
       );
+      const rowCountBeforeNewEntry = receiptRows(doc).length;
       dispatchFullClick(newEntry);
       await settle(doc, elements.cautious.checked ? 1500 : 800);
-      await waitFor(
-        () => findActiveReceiptRow(doc),
+      const firstRow = await waitFor(
+        () => {
+          const rows = receiptRows(doc);
+          return rows.length > rowCountBeforeNewEntry
+            ? rows.at(-1)
+            : null;
+        },
         "ATOS n’a pas créé la première ligne de saisie."
       );
+      let rowIndex = firstRow.index;
       for (let index = 0; index < parsedExport.entries.length; index += 1) {
-        await fillEntry(doc, parsedExport.entries[index], index, parsedExport.entries.length);
+        const nextRowIndex = await fillEntry(
+          doc,
+          parsedExport.entries[index],
+          index,
+          parsedExport.entries.length,
+          rowIndex
+        );
+        if (nextRowIndex != null) rowIndex = nextRowIndex;
       }
       log(
         "Remplissage terminé. Vérifiez les lignes avant Review/Send.",

@@ -95,3 +95,12 @@ test("un libellé SAP enrichi ou dupliqué correspond au type Fo Notes", () => {
     100
   );
 });
+
+test("une description trop longue est tronquée à la limite SAP", () => {
+  const description = "06 Lnch+Dnnr Paris (cumulated) — 2026-07-07";
+
+  const truncated = parser.truncateText(description, 40);
+
+  assert.equal(truncated.length, 40);
+  assert.equal(truncated, "06 Lnch+Dnnr Paris (cumulated) — 2026-07");
+});
