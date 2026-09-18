@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
+import java.time.LocalDate
 
 class ExpenseTypeTest {
     @Test
@@ -277,5 +278,59 @@ class ExpenseTypeTest {
         )
 
         assertTrue(beneficial)
+    }
+
+    @Test
+    fun acceptingCombinedCalculationConvertsBothReceiptsAndKeepsTheirFiles() {
+        val date = LocalDate.of(2026, 9, 18)
+        val dinner = Receipt(
+            id = "dinner",
+            tripId = "trip",
+            date = date,
+            amount = BigDecimal("15.00"),
+            category = ExpenseCategory.MEAL,
+            expenseType = ExpenseType.DINNER_PARIS,
+            storedFileName = "dinner.jpg",
+            mimeType = "image/jpeg"
+        )
+        val lunch = Receipt(
+            id = "lunch",
+            tripId = "trip",
+            date = date,
+            amount = BigDecimal("25.00"),
+            category = ExpenseCategory.MEAL,
+            expenseType = ExpenseType.LUNCH,
+            storedFileName = "lunch.pdf",
+            mimeType = "application/pdf"
+        )
+
+        val combined = combineSeparateMealReceipts(
+            receipts = listOf(dinner, lunch),
+            tripId = "trip",
+            date = date,
+            zone = MealZone.PARIS_SOPHIA
+        )
+
+        assertEquals(listOf("lunch", "dinner"), combined.map { it.id })
+        assertEquals(
+            listOf(ExpenseType.LUNCH_DINNER_PARIS, ExpenseType.LUNCH_DINNER_PARIS),
+            combined.map { it.expenseType }
+        )
+        assertEquals(listOf("lunch.pdf", "dinner.jpg"), combined.map { it.storedFileName })
+
+        val firstBase = applyMealVoucherEmployerContribution(
+            receiptAmount = combined[0].amount,
+            expenseType = combined[0].expenseType,
+            employerContribution = BigDecimal("6.00"),
+            contributionAlreadyApplied = false
+        )
+        val secondBase = applyMealVoucherEmployerContribution(
+            receiptAmount = combined[1].amount,
+            expenseType = combined[1].expenseType,
+            employerContribution = BigDecimal("6.00"),
+            contributionAlreadyApplied = true
+        )
+        assertEquals(BigDecimal("19.00"), firstBase)
+        assertEquals(BigDecimal("15.00"), secondBase)
     }
 }

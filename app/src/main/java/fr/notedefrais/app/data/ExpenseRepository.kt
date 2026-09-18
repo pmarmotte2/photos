@@ -331,13 +331,24 @@ class ExpenseRepository(private val context: Context) {
         val applyCombinedCalculation =
             hasLunchAndDinner && (useCombinedMealCalculation || retainCombinedCalculation)
 
+        if (applyCombinedCalculation) {
+            return state.copy(
+                receipts = combineSeparateMealReceipts(
+                    receipts = normalized,
+                    tripId = trip.id,
+                    date = date,
+                    zone = trip.mealZone
+                )
+            )
+        }
+
         normalized = normalized.map { current ->
             if (
                 current.tripId == trip.id &&
                 current.date == date &&
                 (current.expenseType.isLunch || current.expenseType.isDinner)
             ) {
-                current.copy(combinedMealCalculation = applyCombinedCalculation)
+                current.copy(combinedMealCalculation = false)
             } else if (
                 current.tripId == trip.id &&
                 current.date == date &&

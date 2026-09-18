@@ -264,6 +264,57 @@ fun ExpenseType.oppositeTypeForExistingLunchDinner(zone: MealZone): ExpenseType?
     else -> null
 }
 
+internal fun combineSeparateMealReceipts(
+    receipts: List<Receipt>,
+    tripId: String,
+    date: LocalDate,
+    zone: MealZone
+): List<Receipt> {
+    val separateMeals = receipts.withIndex()
+        .filter { (_, receipt) ->
+            receipt.tripId == tripId &&
+                receipt.date == date &&
+                (receipt.expenseType.isLunch || receipt.expenseType.isDinner)
+        }
+    if (
+        separateMeals.none { (_, receipt) -> receipt.expenseType.isLunch } ||
+        separateMeals.none { (_, receipt) -> receipt.expenseType.isDinner }
+    ) {
+        return receipts
+    }
+
+    // Le lunch reste le premier justificatif du cumul : c'est sur lui que la
+    // participation employeur doit être déduite lors du recalcul journalier.
+    val combinedType = zone.lunchDinnerType()
+    val convertedMeals = separateMeals
+        .sortedWith(
+            compareBy<IndexedValue<Receipt>>(
+                { if (it.value.expenseType.isLunch) 0 else 1 },
+                { it.index }
+            )
+        )
+        .map { (_, receipt) ->
+            receipt.copy(
+                category = combinedType.category,
+                expenseType = combinedType,
+                combinedMealCalculation = false
+            )
+        }
+        .iterator()
+
+    return receipts.map { receipt ->
+        if (
+            receipt.tripId == tripId &&
+            receipt.date == date &&
+            (receipt.expenseType.isLunch || receipt.expenseType.isDinner)
+        ) {
+            convertedMeals.next()
+        } else {
+            receipt
+        }
+    }
+}
+
 data class MealEntry(
     val amount: BigDecimal,
     val expenseType: ExpenseType

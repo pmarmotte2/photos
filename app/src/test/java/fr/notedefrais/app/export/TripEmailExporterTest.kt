@@ -3,6 +3,8 @@ package fr.notedefrais.app.export
 import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
+import fr.notedefrais.app.data.MealZone
+import fr.notedefrais.app.data.combineSeparateMealReceipts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -183,6 +185,38 @@ class TripEmailExporterTest {
         assertEquals(1, csv.lineSequence().count { it.contains("Lnch+Dnnr Paris") })
         assertTrue(csv.contains("40,00"))
         assertTrue(csv.contains(lines.single().attachmentNames.joinToString(" | ")))
+    }
+
+    @Test
+    fun acceptedLunchDinnerCombinationExportsOneLineWithBothReceipts() {
+        val date = LocalDate.of(2026, 9, 18)
+        val combinedReceipts = combineSeparateMealReceipts(
+            receipts = listOf(
+                receipt(
+                    "dinner",
+                    date,
+                    ExpenseType.DINNER_PARIS,
+                    comment = "Dîner équipe"
+                ),
+                receipt(
+                    "lunch",
+                    date,
+                    ExpenseType.LUNCH,
+                    comment = "Déjeuner client"
+                )
+            ),
+            tripId = "trip",
+            date = date,
+            zone = MealZone.PARIS_SOPHIA
+        )
+
+        val names = buildAttachmentNames(combinedReceipts)
+        val lines = buildExportLines(combinedReceipts, names)
+
+        assertEquals(1, lines.size)
+        assertEquals(BigDecimal("25.00"), lines.single().amount)
+        assertEquals(2, lines.single().attachmentNames.size)
+        assertTrue(lines.single().attachmentNames.all { it.startsWith("01 ") })
     }
 
     @Test
