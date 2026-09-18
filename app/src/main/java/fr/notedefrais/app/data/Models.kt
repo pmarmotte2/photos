@@ -179,6 +179,54 @@ data class Receipt(
     val isCapped: Boolean get() = reimbursableAmount < amount
 }
 
+data class ReceiptDisplayGroup(
+    val receipts: List<Receipt>
+) {
+    init {
+        require(receipts.isNotEmpty())
+    }
+
+    val primaryReceipt: Receipt get() = receipts.first()
+    val declaredAmount: BigDecimal
+        get() = receipts.fold(BigDecimal.ZERO) { total, receipt -> total + receipt.amount }
+    val reimbursableAmount: BigDecimal
+        get() = receipts.fold(BigDecimal.ZERO) { total, receipt ->
+            total + receipt.reimbursableAmount
+        }
+    val isCapped: Boolean get() = reimbursableAmount < declaredAmount
+}
+
+/**
+ * Regroupe les justificatifs Lunch + Dinner d'une même journée pour que la liste
+ * présente une seule dépense cumulée, tout en conservant chaque fichier séparément.
+ */
+fun groupReceiptsForDisplay(receipts: List<Receipt>): List<ReceiptDisplayGroup> {
+    data class CombinedKey(
+        val tripId: String,
+        val date: LocalDate,
+        val expenseType: ExpenseType
+    )
+
+    val combinedByKey = receipts
+        .filter { it.expenseType.isLunchDinner }
+        .groupBy { CombinedKey(it.tripId, it.date, it.expenseType) }
+    val emittedKeys = mutableSetOf<CombinedKey>()
+
+    return buildList {
+        receipts.forEach { receipt ->
+            if (!receipt.expenseType.isLunchDinner) {
+                add(ReceiptDisplayGroup(listOf(receipt)))
+                return@forEach
+            }
+
+            val key = CombinedKey(receipt.tripId, receipt.date, receipt.expenseType)
+            if (emittedKeys.add(key)) {
+                add(ReceiptDisplayGroup(combinedByKey.getValue(key)))
+            }
+        }
+    }
+}
+
 data class ReimbursementCalculation(
     val declaredAmount: BigDecimal,
     val reimbursableAmount: BigDecimal,

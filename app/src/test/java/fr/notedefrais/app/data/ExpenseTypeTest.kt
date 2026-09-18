@@ -333,4 +333,39 @@ class ExpenseTypeTest {
         assertEquals(BigDecimal("19.00"), firstBase)
         assertEquals(BigDecimal("15.00"), secondBase)
     }
+
+    @Test
+    fun cumulatedMealReceiptsAreDisplayedAsOneLineWithBothAttachments() {
+        val date = LocalDate.of(2026, 9, 18)
+        val first = Receipt(
+            id = "lunch",
+            tripId = "trip",
+            date = date,
+            amount = BigDecimal("25.00"),
+            category = ExpenseCategory.MEAL,
+            expenseType = ExpenseType.LUNCH_DINNER_PARIS,
+            storedFileName = "lunch.pdf",
+            mimeType = "application/pdf",
+            reimbursableAmount = BigDecimal("19.00")
+        )
+        val second = Receipt(
+            id = "dinner",
+            tripId = "trip",
+            date = date,
+            amount = BigDecimal("30.00"),
+            category = ExpenseCategory.MEAL,
+            expenseType = ExpenseType.LUNCH_DINNER_PARIS,
+            storedFileName = "dinner.pdf",
+            mimeType = "application/pdf",
+            reimbursableAmount = BigDecimal("26.00")
+        )
+
+        val groups = groupReceiptsForDisplay(listOf(first, second))
+
+        assertEquals(1, groups.size)
+        assertEquals(listOf("lunch.pdf", "dinner.pdf"), groups.single().receipts.map { it.storedFileName })
+        assertEquals(BigDecimal("55.00"), groups.single().declaredAmount)
+        assertEquals(BigDecimal("45.00"), groups.single().reimbursableAmount)
+        assertTrue(groups.single().isCapped)
+    }
 }

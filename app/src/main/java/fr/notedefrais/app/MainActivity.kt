@@ -109,10 +109,12 @@ import fr.notedefrais.app.data.ExpenseType
 import fr.notedefrais.app.data.MealEntry
 import fr.notedefrais.app.data.MealZone
 import fr.notedefrais.app.data.Receipt
+import fr.notedefrais.app.data.ReceiptDisplayGroup
 import fr.notedefrais.app.data.Trip
 import fr.notedefrais.app.data.TripStatus
 import fr.notedefrais.app.data.dinnerType
 import fr.notedefrais.app.data.forMealZone
+import fr.notedefrais.app.data.groupReceiptsForDisplay
 import fr.notedefrais.app.data.isCombinedMealCalculationBeneficial
 import fr.notedefrais.app.data.isDinner
 import fr.notedefrais.app.data.isLunch
@@ -1063,6 +1065,7 @@ private fun DayCard(
     onDelete: (Receipt) -> Unit
 ) {
     val over = summary.remaining.signum() < 0
+    val receiptGroups = groupReceiptsForDisplay(receipts)
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(20.dp),
@@ -1097,13 +1100,133 @@ private fun DayCard(
                 Text("Aucun justificatif ce jour", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             } else {
                 Spacer(Modifier.height(12.dp))
-                receipts.forEachIndexed { index, receipt ->
+                receiptGroups.forEachIndexed { index, group ->
                     if (index > 0) HorizontalDivider(color = Color(0xFFF0F1EE))
-                    ReceiptRow(
-                        receipt = receipt,
-                        onOpen = { onOpen(receipt) },
-                        onEdit = { onEdit(receipt) },
-                        onDelete = { onDelete(receipt) }
+                    if (group.receipts.size == 1) {
+                        val receipt = group.primaryReceipt
+                        ReceiptRow(
+                            receipt = receipt,
+                            onOpen = { onOpen(receipt) },
+                            onEdit = { onEdit(receipt) },
+                            onDelete = { onDelete(receipt) }
+                        )
+                    } else {
+                        CumulatedReceiptRow(
+                            group = group,
+                            onOpen = onOpen,
+                            onEdit = onEdit,
+                            onDelete = onDelete
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CumulatedReceiptRow(
+    group: ReceiptDisplayGroup,
+    onOpen: (Receipt) -> Unit,
+    onEdit: (Receipt) -> Unit,
+    onDelete: (Receipt) -> Unit
+) {
+    val primaryReceipt = group.primaryReceipt
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                color = categoryColor(primaryReceipt.category),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(
+                    categoryIcon(primaryReceipt.category),
+                    contentDescription = null,
+                    tint = FoRed,
+                    modifier = Modifier.padding(9.dp).size(21.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(primaryReceipt.expenseType.displayLabel, fontWeight = FontWeight.Medium)
+                Text(
+                    "${group.receipts.size} justificatifs regroupés",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    group.reimbursableAmount.euros(),
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (group.isCapped) LimitRed else MaterialTheme.colorScheme.onSurface
+                )
+                if (group.isCapped) {
+                    Text(
+                        "sur ${group.declaredAmount.euros()}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        group.receipts.forEachIndexed { index, receipt ->
+            if (index > 0) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 45.dp),
+                    color = Color(0xFFF0F1EE)
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(receipt) }
+                    .padding(start = 45.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.InsertDriveFile,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        receipt.comment.ifBlank { "Justificatif ${index + 1}" },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        receipt.storedFileName,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    receipt.amount.euros(),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                IconButton(onClick = { onEdit(receipt) }) {
+                    Icon(
+                        Icons.Default.MoreHoriz,
+                        contentDescription = "Modifier ce justificatif",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = { onDelete(receipt) }) {
+                    Icon(
+                        Icons.Default.DeleteOutline,
+                        contentDescription = "Supprimer ce justificatif",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
