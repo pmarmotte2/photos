@@ -7,8 +7,12 @@ import fr.notedefrais.app.data.DailySummary
 import fr.notedefrais.app.data.ExpenseCategory
 import fr.notedefrais.app.data.ExpenseRepository
 import fr.notedefrais.app.data.ExpenseState
+import fr.notedefrais.app.data.ExpenseType
+import fr.notedefrais.app.data.MealZone
 import fr.notedefrais.app.data.Receipt
 import fr.notedefrais.app.data.Trip
+import fr.notedefrais.app.data.TripStatus
+import fr.notedefrais.app.data.calculateDailyMealAllowance
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,14 +28,15 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         name: String,
         startDate: LocalDate,
         endDate: LocalDate,
-        dailyMealAllowance: BigDecimal
+        mealZone: MealZone
     ): Result<Unit> = runCatching {
         _state.value = repository.saveTrip(
             Trip(
                 name = name.trim(),
                 startDate = startDate,
                 endDate = endDate,
-                dailyMealAllowance = dailyMealAllowance
+                mealZone = mealZone,
+                dailyMealAllowance = mealZone.dailyAllowance
             ),
             _state.value
         )
@@ -42,16 +47,83 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         trip: Trip,
         date: LocalDate,
         amount: BigDecimal,
-        category: ExpenseCategory,
-        mimeType: String
+        expenseType: ExpenseType,
+        mimeType: String,
+        comment: String,
+        useCombinedMealCalculation: Boolean
     ): Result<Unit> = runCatching {
         _state.value = repository.importReceipt(
-            source, trip, date, amount, category, mimeType, _state.value
+            source,
+            trip,
+            date,
+            amount,
+            expenseType,
+            mimeType,
+            comment,
+            useCombinedMealCalculation,
+            _state.value
         )
     }
 
     fun deleteReceipt(receipt: Receipt) {
         _state.value = repository.deleteReceipt(receipt, _state.value)
+    }
+
+    fun updateReceipt(
+        receipt: Receipt,
+        trip: Trip,
+        date: LocalDate,
+        amount: BigDecimal,
+        expenseType: ExpenseType,
+        comment: String,
+        useCombinedMealCalculation: Boolean
+    ): Result<Unit> = runCatching {
+        _state.value = repository.updateReceipt(
+            receipt = receipt,
+            trip = trip,
+            date = date,
+            amount = amount,
+            expenseType = expenseType,
+            comment = comment,
+            useCombinedMealCalculation = useCombinedMealCalculation,
+            state = _state.value
+        )
+    }
+
+    fun saveExpenseLimits(
+        limits: Map<ExpenseType, BigDecimal>,
+        mealVoucherEmployerContribution: BigDecimal
+    ): Result<Unit> = runCatching {
+        _state.value = repository.saveExpenseLimits(
+            limits = limits,
+            mealVoucherEmployerContribution = mealVoucherEmployerContribution,
+            state = _state.value
+        )
+    }
+
+    fun updateTripTracking(
+        tripId: String,
+        status: TripStatus,
+        submittedDate: LocalDate?
+    ): Result<Unit> = runCatching {
+        _state.value = repository.updateTripTracking(
+            tripId = tripId,
+            status = status,
+            submittedDate = submittedDate,
+            state = _state.value
+        )
+    }
+
+    fun updateTripMealZone(tripId: String, mealZone: MealZone): Result<Unit> = runCatching {
+        _state.value = repository.updateTripMealZone(
+            tripId = tripId,
+            mealZone = mealZone,
+            state = _state.value
+        )
+    }
+
+    fun deleteTrip(tripId: String): Result<Unit> = runCatching {
+        _state.value = repository.deleteTrip(tripId, _state.value)
     }
 
     fun receiptsFor(tripId: String): List<Receipt> =
@@ -62,12 +134,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         return generateSequence(trip.startDate) { previous ->
             previous.plusDays(1).takeUnless { it.isAfter(trip.endDate) }
         }.map { date ->
+            val dailyReceipts = receipts.filter { it.date == date }
             DailySummary(
                 date = date,
-                mealSpent = receipts
-                    .filter { it.date == date && it.category == ExpenseCategory.MEAL }
+                mealSpent = dailyReceipts
+                    .filter { it.category == ExpenseCategory.MEAL }
                     .fold(BigDecimal.ZERO) { total, receipt -> total + receipt.amount },
-                allowance = trip.dailyMealAllowance
+                allowance = calculateDailyMealAllowance(
+                    baseAllowance = trip.dailyMealAllowance,
+                    mealTypes = dailyReceipts.map { it.expenseType },
+                    customLimits = _state.value.customExpenseLimits
+                )
             )
         }.toList()
     }
