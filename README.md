@@ -74,7 +74,7 @@ Un fichier vide désactive la popup.
 ## Télécharger l'APK
 
 La dernière version de test est disponible directement dans le dépôt :
-[Fo Notes 1.19.0](releases/Fo-Notes-1.19.0.apk).
+[Fo Notes 1.20.0](releases/Fo-Notes-1.20.0.apk).
 
 ## Extension Chrome de diagnostic
 
